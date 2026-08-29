@@ -1,0 +1,8 @@
+# STOCKHOLM 1.0
+#=GF ID pseudoknot_demo
+alpha       GCGAAACGCUUCGG
+beta        GUGAAACGCAACGG
+gamma       ACGAAACGUUCGUG
+#=GC SS_cons <<....>>......
+#=GC SS_cons_2 ..((....))....
+//

@@ -1,0 +1,5 @@
+.build/
+.build-x86/
+dist/
+.DS_Store
+*.swp
