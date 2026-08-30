@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+- Expand a single selected structural base to its complete stem arm when shifting.
+- Add an enabled-by-default **Link stem arms** option that atomically shifts the paired arm in the opposite direction to keep the helix in register.
+- Preserve manual block shifting for selections that are not a single stem arm.
+
 ## 0.4.1
 
 - Generate a deterministic, non-repeating color for every structural stem.

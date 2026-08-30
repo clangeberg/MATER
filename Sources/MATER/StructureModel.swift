@@ -13,6 +13,30 @@ struct BasePair: Identifiable, Hashable, Sendable {
     var isPseudoknot: Bool { structureTag != "SS_cons" || open != "<" }
 }
 
+struct StemArmShiftPlan: Equatable, Sendable {
+    let stem: Int
+    let primaryColumns: Set<Int>
+    let counterpartColumns: Set<Int>
+    let direction: Int
+    let linkPairedArm: Bool
+
+    var isLinked: Bool { linkPairedArm && !counterpartColumns.isEmpty }
+    var pairedColumns: Set<Int> { isLinked ? counterpartColumns : [] }
+    var pairedDirection: Int { -direction }
+    var primaryDestinationColumns: Set<Int> { Set(primaryColumns.map { $0 + direction }) }
+    var counterpartDestinationColumns: Set<Int> {
+        isLinked ? Set(counterpartColumns.map { $0 + pairedDirection }) : counterpartColumns
+    }
+
+    var moves: [Int: Int] {
+        var result = Dictionary(uniqueKeysWithValues: primaryColumns.map { ($0, $0 + direction) })
+        for column in pairedColumns {
+            result[column] = column + pairedDirection
+        }
+        return result
+    }
+}
+
 enum StructureParser {
     private static let explicitBrackets: [Character: Character] = ["<": ">", "(": ")", "[": "]", "{": "}"]
     private static let openToClose: [Character: Character] = {
@@ -62,6 +86,34 @@ enum StructureParser {
 
     static func pair(at column: Int, in file: StockholmFile) -> BasePair? {
         pairs(in: file).first { $0.left == column || $0.right == column }
+    }
+
+    /// Expands a single selected base (or an explicitly selected complete arm)
+    /// to its full structural stem arm. A linked paired arm moves in the
+    /// opposite direction so corresponding base pairs remain in register.
+    static func stemArmShiftPlan(
+        selectedColumns: Set<Int>,
+        cursorColumn: Int,
+        direction: Int,
+        linkPairedArm: Bool,
+        in file: StockholmFile
+    ) -> StemArmShiftPlan? {
+        guard direction == -1 || direction == 1 else { return nil }
+        let allPairs = pairs(in: file)
+        guard let cursorPair = allPairs.first(where: { $0.left == cursorColumn || $0.right == cursorColumn }) else { return nil }
+        let stemPairs = allPairs.filter { $0.stem == cursorPair.stem }
+        let cursorIsOnLeftArm = cursorPair.left == cursorColumn
+        let primaryColumns = Set(stemPairs.map { cursorIsOnLeftArm ? $0.left : $0.right })
+        let singleCursorSelection = selectedColumns == Set([cursorColumn])
+        guard singleCursorSelection || selectedColumns == primaryColumns else { return nil }
+        let counterpartColumns = Set(stemPairs.map { cursorIsOnLeftArm ? $0.right : $0.left })
+        return StemArmShiftPlan(
+            stem: cursorPair.stem,
+            primaryColumns: primaryColumns,
+            counterpartColumns: counterpartColumns,
+            direction: direction,
+            linkPairedArm: linkPairedArm
+        )
     }
 
     static func validationIssues(in file: StockholmFile) -> [ValidationIssue] {

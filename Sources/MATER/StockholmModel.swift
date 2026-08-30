@@ -204,25 +204,39 @@ struct StockholmFile: Equatable, Sendable {
     /// row must be able to move so rectangular edits remain atomic.
     @discardableResult
     mutating func shift(rows selectedRows: Set<Int>, columns: Set<Int>, direction: Int) -> Bool {
+        guard direction == -1 || direction == 1 else { return false }
+        return shift(
+            rows: selectedRows,
+            moves: Dictionary(uniqueKeysWithValues: columns.map { ($0, $0 + direction) })
+        )
+    }
+
+    /// Applies an atomic set of source-to-destination moves to every requested
+    /// sequence row. This supports linked stem arms moving in opposite
+    /// directions while retaining the same gap-safety rules as a normal shift.
+    @discardableResult
+    mutating func shift(rows selectedRows: Set<Int>, moves: [Int: Int]) -> Bool {
         let alignmentRows = rows
-        guard !selectedRows.isEmpty, !columns.isEmpty, direction == -1 || direction == 1 else { return false }
+        guard !selectedRows.isEmpty, !moves.isEmpty else { return false }
         let modelRows = selectedRows.sorted()
         guard modelRows.allSatisfy({ alignmentRows.indices.contains($0) && alignmentRows[$0].kind.isSequence }) else { return false }
+
+        let sources = Set(moves.keys)
+        let destinations = Array(moves.values)
+        guard Set(destinations).count == destinations.count else { return false }
 
         var replacements: [Int: String] = [:]
         for row in modelRows {
             let recordIndex = alignmentRows[row].recordIndex
             let characters = Array(records[recordIndex].aligned)
-            guard columns.allSatisfy({ characters.indices.contains($0) }) else { return false }
-            let destinations = Set(columns.map { $0 + direction })
+            guard sources.allSatisfy({ characters.indices.contains($0) }) else { return false }
             guard destinations.allSatisfy({ characters.indices.contains($0) }) else { return false }
-            guard destinations.subtracting(columns).allSatisfy({ Self.isGap(characters[$0]) }) else { return false }
+            guard Set(destinations).subtracting(sources).allSatisfy({ Self.isGap(characters[$0]) }) else { return false }
 
             var shifted = characters
-            for column in columns { shifted[column] = "-" }
-            let ordered = direction < 0 ? columns.sorted() : columns.sorted(by: >)
-            for column in ordered {
-                shifted[column + direction] = characters[column]
+            for column in sources { shifted[column] = "-" }
+            for (source, destination) in moves {
+                shifted[destination] = characters[source]
             }
             replacements[recordIndex] = String(shifted)
         }

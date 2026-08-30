@@ -1,5 +1,11 @@
 import Foundation
 
+struct StemShiftContinuation: Equatable {
+    let stem: Int
+    let primaryColumns: Set<Int>
+    let counterpartColumns: Set<Int>
+}
+
 enum AlignmentColorMode: String, CaseIterable, Identifiable {
     case stem
     case covariation
@@ -37,6 +43,8 @@ final class EditorState: ObservableObject {
     @Published var showConsensus = true
     @Published var referenceSequenceName: String?
     @Published var showChanges = false
+    @Published var linkPairedStemShifts = true
+    @Published var stemShiftContinuation: StemShiftContinuation?
     @Published var statusMessage = "Ready"
 
     var selection: ClosedRange<Int> {
@@ -86,6 +94,7 @@ final class EditorState: ObservableObject {
             if anchorColumn != targetColumn { anchorColumn = targetColumn }
         }
         if !specialColumns.isEmpty { specialColumns = [] }
+        if stemShiftContinuation != nil { stemShiftContinuation = nil }
     }
 
     func selectColumns(_ columns: Set<Int>, row: Int? = nil) {
@@ -98,6 +107,7 @@ final class EditorState: ObservableObject {
         if anchorColumn != first { anchorColumn = first }
         if selectedColumn != last { selectedColumn = last }
         if specialColumns != columns { specialColumns = columns }
+        if stemShiftContinuation != nil { stemShiftContinuation = nil }
     }
 
     func translateSelectedColumns(by offset: Int) {
@@ -110,6 +120,7 @@ final class EditorState: ObservableObject {
             anchorColumn += offset
             selectedColumn += offset
         }
+        if stemShiftContinuation != nil { stemShiftContinuation = nil }
     }
 
     func clamp(to file: StockholmFile) {
@@ -131,5 +142,10 @@ final class EditorState: ObservableObject {
         if selectedColumn != clampedColumn { selectedColumn = clampedColumn }
         let validSpecialColumns = specialColumns.filter { $0 >= 0 && $0 < alignmentLength }
         if specialColumns != validSpecialColumns { specialColumns = validSpecialColumns }
+        if let continuation = stemShiftContinuation {
+            let valid = continuation.primaryColumns.allSatisfy { $0 >= 0 && $0 < alignmentLength }
+                && continuation.counterpartColumns.allSatisfy { $0 >= 0 && $0 < alignmentLength }
+            if !valid { stemShiftContinuation = nil }
+        }
     }
 }

@@ -544,9 +544,19 @@ final class AlignmentCanvasView: NSView {
         let option = event.modifierFlags.contains(.option)
         switch event.keyCode {
         case 123:
-            if option { shiftSelection(direction: -1) } else { move(rowDelta: 0, columnDelta: -1, extending: shift) }
+            if option {
+                shiftSelection(direction: -1)
+                needsDisplay = true
+                return
+            }
+            move(rowDelta: 0, columnDelta: -1, extending: shift)
         case 124:
-            if option { shiftSelection(direction: 1) } else { move(rowDelta: 0, columnDelta: 1, extending: shift) }
+            if option {
+                shiftSelection(direction: 1)
+                needsDisplay = true
+                return
+            }
+            move(rowDelta: 0, columnDelta: 1, extending: shift)
         case 125: move(rowDelta: 1, columnDelta: 0, extending: shift)
         case 126: move(rowDelta: -1, columnDelta: 0, extending: shift)
         case 51, 117: replaceSelectionWithGap()
@@ -615,18 +625,13 @@ final class AlignmentCanvasView: NSView {
 
     private func shiftSelection(direction: Int) {
         guard let document, let state else { return }
-        let rows = Set(state.selectedRows.filter {
-            document.analysis.rows.indices.contains($0) && document.analysis.rows[$0].kind.isSequence
-        })
-        var shifted = false
-        document.mutate(direction < 0 ? "Shift Left" : "Shift Right", undoManager: window?.undoManager) { file in
-            shifted = file.shift(rows: rows, columns: state.selectedColumnSet, direction: direction)
-        }
-        if shifted {
-            state.translateSelectedColumns(by: direction)
-        } else {
+        if !AlignmentShiftController.shift(
+            document: document,
+            state: state,
+            direction: direction,
+            undoManager: window?.undoManager
+        ) {
             NSSound.beep()
-            state.statusMessage = "A gap is required beside the selected block."
         }
     }
 

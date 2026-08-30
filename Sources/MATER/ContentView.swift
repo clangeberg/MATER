@@ -128,6 +128,11 @@ struct DocumentEditorView: View {
                     .help("Shift the selected block left into an adjacent gap (Option–Left Arrow).")
                 Button(action: { shift(1) }) { Label("Shift right", systemImage: "arrow.right") }
                     .help("Shift the selected block right into an adjacent gap (Option–Right Arrow).")
+                Toggle(isOn: $state.linkPairedStemShifts) {
+                    Label("Link stem arms", systemImage: "link")
+                }
+                .toggleStyle(.button)
+                .help("When shifting one stem arm, move its paired arm one column in the opposite direction to keep the helix in register.")
                 Button(action: openGap) { Label("Open gap", systemImage: "arrow.right.to.line") }
                     .help("Open a gap before the cursor while consuming the next gap (Control–G).")
                 Button(action: closeGap) { Label("Close gap", systemImage: "arrow.left.to.line") }
@@ -259,18 +264,12 @@ struct DocumentEditorView: View {
     }
 
     private func shift(_ direction: Int) {
-        let rows = Set(state.selectedRows.filter {
-            document.analysis.rows.indices.contains($0) && document.analysis.rows[$0].kind.isSequence
-        })
-        var shifted = false
-        document.mutate(direction < 0 ? "Shift Left" : "Shift Right", undoManager: undoManager) { file in
-            shifted = file.shift(rows: rows, columns: state.selectedColumnSet, direction: direction)
-        }
-        if shifted {
-            state.translateSelectedColumns(by: direction)
-            state.statusMessage = direction < 0 ? "Shifted selection left." : "Shifted selection right."
-        } else {
-            state.statusMessage = "A gap is required beside the selected block."
+        if !AlignmentShiftController.shift(
+            document: document,
+            state: state,
+            direction: direction,
+            undoManager: undoManager
+        ) {
             NSSound.beep()
         }
     }

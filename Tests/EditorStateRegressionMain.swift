@@ -15,6 +15,7 @@ struct EditorStateRegressionMain {
         precondition(state.hidePosteriorProbability, "PP annotation rows should be hidden by default.")
         precondition(state.showEntropyPlot, "The entropy plot should be shown by default.")
         precondition(state.showGapPlot, "The gap-frequency plot should be shown by default.")
+        precondition(state.linkPairedStemShifts, "Paired stem-arm shifting should be enabled by default.")
         var notifications = 0
         let observation = state.objectWillChange.sink { notifications += 1 }
 
@@ -39,6 +40,10 @@ struct EditorStateRegressionMain {
         precondition(state.selectedColumnSet == [1, 4])
         state.clamp(rowCount: 2, alignmentLength: 4)
         precondition(state.selectedColumnSet == [1], "Clamping should discard out-of-range special columns.")
+
+        state.stemShiftContinuation = StemShiftContinuation(stem: 0, primaryColumns: [1], counterpartColumns: [2])
+        state.select(row: 0, column: 1)
+        precondition(state.stemShiftContinuation == nil, "A new cell selection should end a stem-shift continuation.")
 
         withExtendedLifetime(observation) {}
         print("MATER editor-state regression test passed.")

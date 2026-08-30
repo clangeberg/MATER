@@ -6,7 +6,7 @@
 
 ## Install
 
-1. Download `MATER-0.4.1-macOS-universal.zip` from the [latest release](https://github.com/clangeberg/MATER/releases/latest).
+1. Download `MATER-0.4.2-macOS-universal.zip` from the [latest release](https://github.com/clangeberg/MATER/releases/latest).
 2. Unzip it and drag `MATER.app` into Applications.
 3. On first launch, right-click the app and choose **Open**. If macOS still blocks it, allow MATER under **System Settings → Privacy & Security** and open it again.
 
@@ -35,7 +35,8 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Rolling recovery snapshots, changed-cell highlighting, and baseline region/row reversion
 - Full-alignment vector export to PDF or SVG using the current colors and display options
 - Export titles, legends, numbering intervals, adjustable name width, selected rows/columns, and tiled multi-page PDF
-- Shift selected residues left/right into adjacent gaps
+- Shift selected residues left/right into adjacent gaps, automatically expanding a single structural base to its complete stem arm
+- Optionally shift both paired stem arms together in opposite directions to keep the helix in register
 - Jump between paired columns
 - Create and remove primary or pseudoknot pairs
 - Insert alignment-wide gap columns, delete one all-gap column, or remove every all-gap column at once
@@ -64,7 +65,8 @@ Run the regression suite with:
 - Double-click a paired cell to select both partners; triple-click it to select its entire stem.
 - Type an IUPAC nucleotide to replace selected sequence cells.
 - Delete replaces sequence cells with `-` and annotation cells with `.`.
-- Option–Left/Right shifts the selected block or discontinuous pair/stem selection into adjacent gaps.
+- Option–Left/Right shifts the selected block into adjacent gaps. On a single paired base, it automatically shifts that complete stem arm.
+- Keep **Link stem arms** enabled to move the paired arm one column in the opposite direction during a stem-arm shift; turn it off to move only the selected arm.
 - Control-G opens a gap before the cursor; Control-Shift-G closes the selected gap.
 - Command-C/V copies or overwrites an alignment segment.
 - Command-F focuses search; enter a sequence name, motif, number, or `col:123`.

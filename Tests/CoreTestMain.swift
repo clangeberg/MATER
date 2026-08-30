@@ -13,6 +13,7 @@ struct CoreTestMain {
         calculatesConsensusAndGapFrequency()
         alignmentEditingKeepsRowsSynchronized()
         advancedGapAndRectangularEditing()
+        stemAwareAndLinkedArmShifting()
         searchesAndNavigatesProblems()
         removesEveryAllGapColumnSafely()
         canCreateAndRemovePseudoknotPair()
@@ -187,6 +188,74 @@ struct CoreTestMain {
         expect(gapFile.records[gapFile.sequenceRows[0].recordIndex].aligned == "A-CGU", "open-gap output")
         expect(gapFile.closeGap(row: 0, at: 1), "close-gap command failed")
         expect(gapFile.records[gapFile.sequenceRows[0].recordIndex].aligned == "ACGU-", "close-gap output")
+    }
+
+    private static func stemAwareAndLinkedArmShifting() {
+        let text = """
+        # STOCKHOLM 1.0
+        one -ACG----CGU-
+        #=GC SS_cons .<<<....>>>.
+        //
+        """
+
+        var oneArmFile = StockholmParser.parse(text)
+        guard let oneArmPlan = StructureParser.stemArmShiftPlan(
+            selectedColumns: [1],
+            cursorColumn: 1,
+            direction: 1,
+            linkPairedArm: false,
+            in: oneArmFile
+        ) else {
+            expect(false, "single-base stem-arm plan was not created")
+            return
+        }
+        expect(oneArmPlan.primaryColumns == [1, 2, 3], "single-base selection did not expand to the complete arm")
+        expect(oneArmPlan.pairedColumns.isEmpty, "unlinked shift unexpectedly included the paired arm")
+        expect(oneArmFile.shift(rows: [0], moves: oneArmPlan.moves), "complete stem-arm shift failed")
+        expect(oneArmFile.records[oneArmFile.sequenceRows[0].recordIndex].aligned == "--ACG---CGU-", "complete stem-arm shift output")
+
+        var linkedFile = StockholmParser.parse(text)
+        guard let linkedPlan = StructureParser.stemArmShiftPlan(
+            selectedColumns: [10],
+            cursorColumn: 10,
+            direction: -1,
+            linkPairedArm: true,
+            in: linkedFile
+        ) else {
+            expect(false, "linked stem-arm plan was not created")
+            return
+        }
+        expect(linkedPlan.primaryColumns == [8, 9, 10], "right stem arm was not detected")
+        expect(linkedPlan.pairedColumns == [1, 2, 3], "paired stem arm was not detected")
+        expect(linkedFile.shift(rows: [0], moves: linkedPlan.moves), "linked stem-arm shift failed")
+        expect(linkedFile.records[linkedFile.sequenceRows[0].recordIndex].aligned == "--ACG--CGU--", "linked stem-arm shift output")
+
+        let repeatedPlan = StemArmShiftPlan(
+            stem: linkedPlan.stem,
+            primaryColumns: linkedPlan.primaryDestinationColumns,
+            counterpartColumns: linkedPlan.counterpartDestinationColumns,
+            direction: -1,
+            linkPairedArm: true
+        )
+        expect(linkedFile.shift(rows: [0], moves: repeatedPlan.moves), "repeated linked stem-arm shift failed")
+        expect(linkedFile.records[linkedFile.sequenceRows[0].recordIndex].aligned == "---ACGCGU---", "repeated linked stem-arm shift output")
+
+        var blockedFile = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one AACG----CGU-
+        #=GC SS_cons .<<<....>>>.
+        //
+        """)
+        let original = blockedFile.rendered
+        let blockedPlan = StructureParser.stemArmShiftPlan(
+            selectedColumns: [1],
+            cursorColumn: 1,
+            direction: -1,
+            linkPairedArm: false,
+            in: blockedFile
+        )!
+        expect(!blockedFile.shift(rows: [0], moves: blockedPlan.moves), "blocked stem-arm shift should fail")
+        expect(blockedFile.rendered == original, "blocked stem-arm shift was not atomic")
     }
 
     private static func searchesAndNavigatesProblems() {

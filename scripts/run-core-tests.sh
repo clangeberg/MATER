@@ -55,7 +55,9 @@ swiftc \
   -module-cache-path "$module_cache" \
   "$project_dir/Sources/MATER/StockholmModel.swift" \
   "$project_dir/Sources/MATER/StructureModel.swift" \
+  "$project_dir/Sources/MATER/EditorState.swift" \
   "$project_dir/Sources/MATER/StockholmDocument.swift" \
+  "$project_dir/Sources/MATER/AlignmentShiftController.swift" \
   "$project_dir/Tests/DocumentRegressionMain.swift" \
   -framework AppKit \
   -framework SwiftUI \

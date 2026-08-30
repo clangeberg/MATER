@@ -9,7 +9,7 @@ struct MATERApp: App {
         .commands {
             CommandGroup(after: .textEditing) {
                 Divider()
-                Text("MATER: Shift–arrows selects a rectangle; Option–Left/Right shifts it; Control–G opens a gap; Control–Shift–G closes one.")
+                Text("MATER: Shift–arrows selects a rectangle; Option–Left/Right shifts it or a complete stem arm; Link stem arms moves the paired arm in register; Control–G opens a gap.")
             }
         }
 
