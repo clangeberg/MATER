@@ -15,7 +15,7 @@ struct DocumentEditorView: View {
         VStack(spacing: 0) {
             controls
             Divider()
-            if state.referenceSequenceName != nil || state.showConsensus {
+            if state.referenceSequenceName != nil {
                 PinnedReferencePanel(document: document, state: state, residuePalette: residuePalette)
                 Divider()
             }
@@ -79,12 +79,10 @@ struct DocumentEditorView: View {
                             }
                         }
                     }
-                    Divider()
-                    Toggle("Show RNA consensus", isOn: $state.showConsensus)
                 } label: {
                     Label("Reference", systemImage: "pin")
                 }
-                .help("Pin a reference sequence and calculated RNA consensus above the scrolling alignment.")
+                .help("Pin a reference sequence above the scrolling alignment.")
 
                 Menu {
                     Button("Export colored alignment as PDF…") { beginExport(.pdf) }
@@ -103,6 +101,7 @@ struct DocumentEditorView: View {
                     Divider()
                     Toggle("Cell grid", isOn: $state.showGrid)
                     Toggle("Hide PP annotation rows", isOn: $state.hidePosteriorProbability)
+                    Toggle("Show R2R consensus row", isOn: $state.showConsensus)
                     Toggle("Show entropy bar plot", isOn: $state.showEntropyPlot)
                     Toggle("Show gap-frequency plot", isOn: $state.showGapPlot)
                     Toggle("Highlight high-entropy/gap-rich columns", isOn: $state.highlightAnalysisColumns)
@@ -264,6 +263,11 @@ struct DocumentEditorView: View {
     }
 
     private func shift(_ direction: Int) {
+        guard !state.selectingConsensus else {
+            state.statusMessage = "The calculated R2R consensus row is read-only."
+            NSSound.beep()
+            return
+        }
         if !AlignmentShiftController.shift(
             document: document,
             state: state,
@@ -275,6 +279,13 @@ struct DocumentEditorView: View {
     }
 
     private var selectionInspectorText: String {
+        if state.selectingConsensus {
+            let columns = state.orderedSelectedColumns
+            let columnText = columns.count == 1
+                ? "col \((columns.first ?? 0) + 1)"
+                : "cols \((columns.first ?? 0) + 1)–\((columns.last ?? 0) + 1)"
+            return "R2R consensus • \(columnText)"
+        }
         let rowLabels = state.selectedRows.compactMap { document.analysis.rows.indices.contains($0) ? document.analysis.rows[$0].label : nil }
         let rowText = rowLabels.count <= 1 ? (rowLabels.first ?? "row") : "\(rowLabels.first ?? "row")…\(rowLabels.last ?? "row")"
         let columns = state.orderedSelectedColumns
@@ -306,7 +317,7 @@ struct DocumentEditorView: View {
             return
         }
         let destination = pair.left == state.selectedColumn ? pair.right : pair.left
-        state.select(row: state.selectedRow, column: destination)
+        select(row: state.selectedRow, column: destination)
         state.statusMessage = "Jumped to column \(destination + 1) in \(pair.structureTag)."
     }
 
@@ -372,12 +383,17 @@ struct DocumentEditorView: View {
         }
 
         let columnsBeforeSelection = removedColumns.lazy.filter { $0 < priorColumn }.count
-        state.select(row: state.selectedRow, column: max(0, priorColumn - columnsBeforeSelection))
+        select(row: state.selectedRow, column: max(0, priorColumn - columnsBeforeSelection))
         state.clamp(rowCount: document.analysis.rows.count, alignmentLength: document.analysis.alignmentLength)
         state.statusMessage = "Removed \(removedColumns.count) all-gap column\(removedColumns.count == 1 ? "" : "s")."
     }
 
     private func openGap() {
+        guard !state.selectingConsensus else {
+            state.statusMessage = "The calculated R2R consensus row is read-only."
+            NSSound.beep()
+            return
+        }
         var changed = false
         document.mutate("Open Gap", undoManager: undoManager) { file in
             changed = file.openGap(row: state.selectedRow, at: state.selectedColumn)
@@ -387,6 +403,11 @@ struct DocumentEditorView: View {
     }
 
     private func closeGap() {
+        guard !state.selectingConsensus else {
+            state.statusMessage = "The calculated R2R consensus row is read-only."
+            NSSound.beep()
+            return
+        }
         var changed = false
         document.mutate("Close Gap", undoManager: undoManager) { file in
             changed = file.closeGap(row: state.selectedRow, at: state.selectedColumn)
@@ -401,7 +422,7 @@ struct DocumentEditorView: View {
             NSSound.beep()
             return
         }
-        state.select(row: match.row, column: match.column)
+        select(row: match.row, column: match.column)
         state.statusMessage = "Found \(match.message)."
     }
 
@@ -418,8 +439,14 @@ struct DocumentEditorView: View {
             NSSound.beep()
             return
         }
-        state.select(row: problem.row, column: problem.column)
+        select(row: problem.row, column: problem.column)
         state.statusMessage = problem.message
+    }
+
+    private func select(row: Int, column: Int) {
+        let wholeColumn = document.analysis.rows.indices.contains(row)
+            && document.analysis.rows[row].kind.selectsWholeColumn
+        state.select(row: row, column: column, wholeColumn: wholeColumn)
     }
 
     private func revertSelectedRegion() {
@@ -494,6 +521,7 @@ struct DocumentEditorView: View {
                 hidePosteriorProbability: state.hidePosteriorProbability,
                 showEntropy: state.showEntropyPlot,
                 showGap: state.showGapPlot,
+                showConsensus: state.showConsensus,
                 showGrid: state.showGrid,
                 fontSize: state.fontSize,
                 options: options

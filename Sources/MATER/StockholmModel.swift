@@ -28,6 +28,13 @@ enum AlignmentRowKind: Equatable, Sendable {
         }
     }
 
+    var selectsWholeColumn: Bool {
+        guard case .columnAnnotation(let tag) = self else { return false }
+        return tag.hasPrefix("SS_cons")
+            || tag.caseInsensitiveCompare("RF") == .orderedSame
+            || tag.caseInsensitiveCompare("cons") == .orderedSame
+    }
+
     var label: String {
         switch self {
         case .sequence(let name): return name
@@ -465,26 +472,214 @@ enum GapAnalyzer {
 }
 
 enum ConsensusAnalyzer {
+    private struct TreeNode {
+        let left: Int
+        let right: Int
+        let leftBranchLength: Float
+        let rightBranchLength: Float
+        let descendantCount: Int
+    }
+
+    private static let identityThresholds: [Double] = [0.97, 0.90, 0.75]
+    private static let presenceThresholds: [Double] = [0.97, 0.90, 0.75, 0.50]
+
+    /// Reproduces R2R's standard GSC-weighted sequence consensus. Its output
+    /// alphabet is deliberately limited to A, C, G, U, R, Y, n, and -.
     static func consensus(in file: StockholmFile) -> String {
         let length = file.alignmentLength
         guard length > 0 else { return "" }
-        var counts = Array(repeating: [Character: Int](), count: length)
-        for row in file.sequenceRows {
-            for (column, residue) in file.records[row.recordIndex].aligned.uppercased().enumerated() where column < length {
-                let normalized: Character
-                switch residue {
-                case "A", "C", "G", "U": normalized = residue
-                case "T": normalized = "U"
-                default: continue
+        let sequences = file.sequenceRows.map { Array(file.records[$0.recordIndex].aligned) }
+        guard !sequences.isEmpty else { return String(repeating: "-", count: length) }
+
+        let weights = gscWeights(for: sequences)
+        let validRegions = sequences.map { sequence -> Range<Int> in
+            let first = sequence.firstIndex(where: isAlphabetic) ?? sequence.count
+            let last = sequence.lastIndex(where: isAlphabetic).map { $0 + 1 } ?? first
+            return first..<last
+        }
+
+        var result = String()
+        result.reserveCapacity(length)
+        for column in 0..<length {
+            // R2R count order: A, C, G, U, gap.
+            var counts = Array(repeating: 0.0, count: 5)
+            for sequenceIndex in sequences.indices {
+                let sequence = sequences[sequenceIndex]
+                guard sequence.indices.contains(column), validRegions[sequenceIndex].contains(column) else { continue }
+                let residue = sequence[column]
+                if let nucleotide = canonicalNucleotideIndex(residue) {
+                    counts[nucleotide] += Double(weights[sequenceIndex])
+                } else if !isAlphabetic(residue) {
+                    counts[4] += Double(weights[sequenceIndex])
                 }
-                counts[column][normalized, default: 0] += 1
+                // Alphabetic ambiguity symbols are intentionally omitted.
+            }
+            result.append(symbol(for: counts))
+        }
+        return result
+    }
+
+    /// Internal for threshold-focused regression tests. Values may be raw
+    /// weighted counts or normalized frequencies.
+    static func symbol(for rawCounts: [Double]) -> Character {
+        guard rawCounts.count == 5 else { return "-" }
+        let total = rawCounts.reduce(0, +)
+        guard total > 0 else { return "-" }
+        let counts = rawCounts.map { $0 / total }
+        let nucleotides: [Character] = ["A", "C", "G", "U"]
+
+        for threshold in identityThresholds {
+            for nucleotide in 0..<4 where counts[nucleotide] >= threshold {
+                return nucleotides[nucleotide]
             }
         }
-        return String(counts.map { column in
-            column.max { lhs, rhs in
-                lhs.value == rhs.value ? String(lhs.key) > String(rhs.key) : lhs.value < rhs.value
-            }?.key ?? "-"
-        })
+        for threshold in identityThresholds {
+            if counts[0] + counts[2] >= threshold { return "R" }
+            if counts[1] + counts[3] >= threshold { return "Y" }
+        }
+        for threshold in presenceThresholds where 1.0 - counts[4] >= threshold {
+            return "n"
+        }
+        return "-"
+    }
+
+    private static func canonicalNucleotideIndex(_ character: Character) -> Int? {
+        switch character {
+        case "A", "a": return 0
+        case "C", "c": return 1
+        case "G", "g": return 2
+        case "U", "u", "T", "t": return 3
+        default: return nil
+        }
+    }
+
+    private static func isAlphabetic(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first, character.unicodeScalars.count == 1 else { return false }
+        return (65...90).contains(scalar.value) || (97...122).contains(scalar.value)
+    }
+
+    private static func isGSCGap(_ character: Character) -> Bool {
+        character == " " || character == "." || character == "_" || character == "-" || character == "~"
+    }
+
+    private static func pairwiseIdentity(_ first: [Character], _ second: [Character]) -> Float {
+        var identities = 0
+        var firstLength = 0
+        var secondLength = 0
+        for (lhs, rhs) in zip(first, second) {
+            if !isGSCGap(lhs) {
+                firstLength += 1
+                if lhs == rhs { identities += 1 }
+            }
+            if !isGSCGap(rhs) { secondLength += 1 }
+        }
+        let denominator = min(firstLength, secondLength)
+        return denominator == 0 ? 0 : Float(identities) / Float(denominator)
+    }
+
+    private static func gscWeights(for sequences: [[Character]]) -> [Float] {
+        let count = sequences.count
+        guard count > 1 else { return count == 1 ? [1] : [] }
+
+        var matrix = Array(repeating: Array(repeating: Float(0), count: count), count: count)
+        for first in 0..<count {
+            for second in (first + 1)..<count {
+                let distance = 1 - pairwiseIdentity(sequences[first], sequences[second])
+                matrix[first][second] = distance
+                matrix[second][first] = distance
+            }
+        }
+
+        var coordinates = Array(0..<count)
+        var nodes = Array<TreeNode?>(repeating: nil, count: count - 1)
+        var nodeDistances = Array(repeating: Float(0), count: count - 1)
+
+        for activeCount in stride(from: count, through: 2, by: -1) {
+            var minimum = Float.greatestFiniteMagnitude
+            var first = 0
+            var second = 1
+            for row in 0..<activeCount {
+                guard row + 1 < activeCount else { continue }
+                for column in (row + 1)..<activeCount where matrix[row][column] < minimum {
+                    minimum = matrix[row][column]
+                    first = row
+                    second = column
+                }
+            }
+
+            let left = coordinates[first]
+            let right = coordinates[second]
+            let nodeIndex = activeCount - 2
+            let leftDistance = left >= count ? nodeDistances[left - count] : 0
+            let rightDistance = right >= count ? nodeDistances[right - count] : 0
+            let leftCount = left >= count ? nodes[left - count]?.descendantCount ?? 0 : 1
+            let rightCount = right >= count ? nodes[right - count]?.descendantCount ?? 0 : 1
+            nodes[nodeIndex] = TreeNode(
+                left: left,
+                right: right,
+                leftBranchLength: minimum - leftDistance,
+                rightBranchLength: minimum - rightDistance,
+                descendantCount: leftCount + rightCount
+            )
+            nodeDistances[nodeIndex] = minimum
+
+            if first == activeCount - 1 || second == activeCount - 2 {
+                swap(&first, &second)
+            }
+            swapRowsAndColumns(&matrix, first, activeCount - 2, activeCount: activeCount)
+            coordinates.swapAt(first, activeCount - 2)
+            swapRowsAndColumns(&matrix, second, activeCount - 1, activeCount: activeCount)
+            coordinates.swapAt(second, activeCount - 1)
+
+            let merged = activeCount - 2
+            let removed = activeCount - 1
+            for column in 0..<activeCount {
+                matrix[merged][column] = min(matrix[merged][column], matrix[removed][column])
+            }
+            for row in 0..<activeCount { matrix[row][merged] = matrix[merged][row] }
+            coordinates[merged] = count + nodeIndex
+        }
+
+        var leftWeights = Array(repeating: Float(0), count: count * 2 - 1)
+        var rightWeights = Array(repeating: Float(0), count: count * 2 - 1)
+        var finalWeights = Array(repeating: Float(0), count: count * 2 - 1)
+
+        func accumulate(_ identifier: Int) {
+            guard identifier >= count, let node = nodes[identifier - count] else { return }
+            accumulate(node.left)
+            accumulate(node.right)
+            leftWeights[identifier] = leftWeights[node.left] + rightWeights[node.left] + node.leftBranchLength
+            rightWeights[identifier] = leftWeights[node.right] + rightWeights[node.right] + node.rightBranchLength
+        }
+
+        func distribute(_ identifier: Int) {
+            guard identifier >= count, let node = nodes[identifier - count] else { return }
+            let totalBranchWeight = leftWeights[identifier] + rightWeights[identifier]
+            if totalBranchWeight > 0 {
+                finalWeights[node.left] = finalWeights[identifier] * leftWeights[identifier] / totalBranchWeight
+                finalWeights[node.right] = finalWeights[identifier] * rightWeights[identifier] / totalBranchWeight
+            } else {
+                let leftCount = node.left >= count ? nodes[node.left - count]?.descendantCount ?? 1 : 1
+                let rightCount = node.right >= count ? nodes[node.right - count]?.descendantCount ?? 1 : 1
+                let descendantTotal = Float(leftCount + rightCount)
+                finalWeights[node.left] = finalWeights[identifier] * Float(leftCount) / descendantTotal
+                finalWeights[node.right] = finalWeights[identifier] * Float(rightCount) / descendantTotal
+            }
+            distribute(node.left)
+            distribute(node.right)
+        }
+
+        let root = count
+        accumulate(root)
+        finalWeights[root] = Float(count)
+        distribute(root)
+        return Array(finalWeights.prefix(count))
+    }
+
+    private static func swapRowsAndColumns(_ matrix: inout [[Float]], _ first: Int, _ second: Int, activeCount: Int) {
+        guard first != second else { return }
+        matrix.swapAt(first, second)
+        for row in 0..<activeCount { matrix[row].swapAt(first, second) }
     }
 }
 

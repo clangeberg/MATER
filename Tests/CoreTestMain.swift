@@ -10,7 +10,7 @@ struct CoreTestMain {
         recognizesCanonicalBasePairs()
         covariationClassification()
         calculatesColumnEntropy()
-        calculatesConsensusAndGapFrequency()
+        calculatesR2RConsensusAndGapFrequency()
         alignmentEditingKeepsRowsSynchronized()
         advancedGapAndRectangularEditing()
         stemAwareAndLinkedArmShifting()
@@ -63,6 +63,9 @@ struct CoreTestMain {
         expect(file.sequenceRows.count == 2, "sequence row count")
         expect(file.alignmentLength == 8, "alignment length")
         expect(file.structureRows.count == 1, "structure row count")
+        expect(file.rows.contains { $0.kind.selectsWholeColumn && $0.label == "#=GC SS_cons" }, "SS_cons whole-column selection marker")
+        expect(file.rows.contains { $0.kind.selectsWholeColumn && $0.label == "#=GC RF" }, "RF whole-column selection marker")
+        expect(AlignmentRowKind.columnAnnotation(tag: "cons").selectsWholeColumn, "cons whole-column selection marker")
         expect(file.validationIssues.isEmpty, "valid fixture reported issues")
     }
 
@@ -135,7 +138,7 @@ struct CoreTestMain {
         expect(abs(entropy[2]) < 0.000_001, "gap-only entropy")
     }
 
-    private static func calculatesConsensusAndGapFrequency() {
+    private static func calculatesR2RConsensusAndGapFrequency() {
         let file = StockholmParser.parse("""
         # STOCKHOLM 1.0
         one AC-U
@@ -144,9 +147,46 @@ struct CoreTestMain {
         #=GC SS_cons ....
         //
         """)
-        expect(ConsensusAnalyzer.consensus(in: file) == "AC-G", "RNA consensus calculation")
+        expect(ConsensusAnalyzer.consensus(in: file) == "An-n", "GSC-weighted RNA consensus calculation")
         let gaps = GapAnalyzer.columnGapFrequencies(in: file)
         expect(abs(gaps[2] - 1.0) < 0.000_001, "gap-frequency calculation")
+
+        // This is the official R2R 1.0.7 demo alignment and its generated
+        // sequence consensus, providing an end-to-end compatibility fixture.
+        let r2rDemo = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        human   ACACGCGAAA.GCGCAA.CAAACGUGCACGG
+        chimp   GAAUGUGAAAAACACCA.CUCUUGAGGACCU
+        bigfoot UUGAG.UUCG..CUCGUUUUCUCGAGUACAC
+        //
+        """)
+        expect(
+            ConsensusAnalyzer.consensus(in: r2rDemo) == "nnRnGnnnnR-nCnCnn-YnnnYGnGnACnn",
+            "consensus differs from the official R2R 1.0.7 demo output"
+        )
+
+        let ambiguous = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one A
+        two N
+        three R
+        //
+        """)
+        expect(ConsensusAnalyzer.consensus(in: ambiguous) == "A", "ambiguous input residues should be omitted from R2R counts")
+
+        let fragmentary = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one -A-
+        two GCG
+        //
+        """)
+        expect(ConsensusAnalyzer.consensus(in: fragmentary) == "GnG", "terminal fragment gaps should be excluded from R2R counts")
+
+        expect(ConsensusAnalyzer.symbol(for: [0.75, 0, 0.25, 0, 0]) == "A", "75% identity threshold")
+        expect(ConsensusAnalyzer.symbol(for: [0.74, 0, 0.26, 0, 0]) == "R", "purine ambiguity threshold")
+        expect(ConsensusAnalyzer.symbol(for: [0, 0.50, 0, 0.50, 0]) == "Y", "pyrimidine ambiguity threshold")
+        expect(ConsensusAnalyzer.symbol(for: [0.40, 0.20, 0.20, 0.10, 0.10]) == "n", "R2R nucleotide-presence symbol")
+        expect(ConsensusAnalyzer.symbol(for: [0.20, 0, 0, 0, 0.80]) == "-", "R2R low-presence symbol")
     }
 
     private static func alignmentEditingKeepsRowsSynchronized() {

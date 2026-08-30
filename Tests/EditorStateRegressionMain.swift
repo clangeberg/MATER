@@ -16,6 +16,7 @@ struct EditorStateRegressionMain {
         precondition(state.showEntropyPlot, "The entropy plot should be shown by default.")
         precondition(state.showGapPlot, "The gap-frequency plot should be shown by default.")
         precondition(state.linkPairedStemShifts, "Paired stem-arm shifting should be enabled by default.")
+        precondition(state.showConsensus, "The R2R consensus row should be shown by default.")
         var notifications = 0
         let observation = state.objectWillChange.sink { notifications += 1 }
 
@@ -29,11 +30,19 @@ struct EditorStateRegressionMain {
         precondition(state.selectedRow == 1)
 
         state.select(row: 0, column: 0)
+        state.select(row: 1, column: 1, wholeColumn: true)
+        precondition(state.highlightWholeColumn, "Annotation selection should support a whole-column highlight.")
+        state.select(row: 1, column: 1, wholeColumn: true, consensus: true)
+        precondition(state.selectingConsensus, "Calculated consensus selection state was not retained.")
+        state.select(row: 0, column: 0)
+        precondition(!state.highlightWholeColumn, "Ordinary cell selection should clear the whole-column highlight.")
+        precondition(!state.selectingConsensus, "Ordinary cell selection should leave the calculated consensus row.")
         state.select(row: 1, column: 3, extending: true)
         precondition(state.selectedRows == 0...1, "Shift-selection should extend across rows.")
         precondition(state.selection == 0...3, "Shift-selection should extend across columns.")
 
         state.selectColumns([0, 3], row: 0)
+        precondition(!state.highlightWholeColumn, "Pair/stem selection should not retain a whole-column highlight.")
         precondition(state.selectedColumnSet == [0, 3], "Discontinuous pair/stem selection was lost.")
         precondition(state.selectedColumnRanges == [0...0, 3...3])
         state.translateSelectedColumns(by: 1)

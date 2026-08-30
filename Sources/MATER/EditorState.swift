@@ -41,6 +41,8 @@ final class EditorState: ObservableObject {
     @Published var entropyThreshold = 1.25
     @Published var gapThreshold = 0.50
     @Published var showConsensus = true
+    @Published var highlightWholeColumn = false
+    @Published var selectingConsensus = false
     @Published var referenceSequenceName: String?
     @Published var showChanges = false
     @Published var linkPairedStemShifts = true
@@ -84,7 +86,13 @@ final class EditorState: ObservableObject {
 
     var selectedCellCount: Int { selectedRows.count * selectedColumnSet.count }
 
-    func select(row: Int, column: Int, extending: Bool = false) {
+    func select(
+        row: Int,
+        column: Int,
+        extending: Bool = false,
+        wholeColumn: Bool = false,
+        consensus: Bool = false
+    ) {
         let targetRow = max(0, row)
         let targetColumn = max(0, column)
         if selectedRow != targetRow { selectedRow = targetRow }
@@ -92,8 +100,14 @@ final class EditorState: ObservableObject {
         if !extending {
             if anchorRow != targetRow { anchorRow = targetRow }
             if anchorColumn != targetColumn { anchorColumn = targetColumn }
+        } else if consensus, anchorRow != targetRow {
+            // The calculated row has no model-row range of its own; Shift
+            // extends columns only.
+            anchorRow = targetRow
         }
         if !specialColumns.isEmpty { specialColumns = [] }
+        if highlightWholeColumn != wholeColumn { highlightWholeColumn = wholeColumn }
+        if selectingConsensus != consensus { selectingConsensus = consensus }
         if stemShiftContinuation != nil { stemShiftContinuation = nil }
     }
 
@@ -107,6 +121,8 @@ final class EditorState: ObservableObject {
         if anchorColumn != first { anchorColumn = first }
         if selectedColumn != last { selectedColumn = last }
         if specialColumns != columns { specialColumns = columns }
+        if highlightWholeColumn { highlightWholeColumn = false }
+        if selectingConsensus { selectingConsensus = false }
         if stemShiftContinuation != nil { stemShiftContinuation = nil }
     }
 
@@ -121,6 +137,8 @@ final class EditorState: ObservableObject {
             selectedColumn += offset
         }
         if stemShiftContinuation != nil { stemShiftContinuation = nil }
+        if highlightWholeColumn { highlightWholeColumn = false }
+        if selectingConsensus { selectingConsensus = false }
     }
 
     func clamp(to file: StockholmFile) {

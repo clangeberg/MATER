@@ -44,7 +44,6 @@ struct PinnedReferencePanel: View {
         .onAppear(perform: rebuild)
         .onChange(of: document.revision) { _ in rebuild() }
         .onChange(of: state.referenceSequenceName) { _ in rebuild() }
-        .onChange(of: state.showConsensus) { _ in rebuild() }
         .onChange(of: state.colorMode) { _ in rebuild() }
         .onChange(of: residuePalette.adenine) { _ in rebuild() }
         .onChange(of: residuePalette.cytosine) { _ in rebuild() }
@@ -114,14 +113,6 @@ struct PinnedReferencePanel: View {
                 characters: Array(document.file.records[row.recordIndex].aligned),
                 modelRow: modelRow,
                 recordIndex: row.recordIndex
-            ))
-        }
-        if state.showConsensus {
-            result.append(makeRow(
-                title: "RNA consensus",
-                characters: Array(ConsensusAnalyzer.consensus(in: document.file)),
-                modelRow: nil,
-                recordIndex: nil
             ))
         }
         return result

@@ -35,6 +35,7 @@ struct ExportRegressionMain {
                 hidePosteriorProbability: true,
                 showEntropy: true,
                 showGap: true,
+                showConsensus: true,
                 showGrid: true,
                 fontSize: 15
             )
@@ -46,6 +47,7 @@ struct ExportRegressionMain {
         precondition(svgText.contains("<svg"), "SVG root element is missing.")
         precondition(svgText.contains("Entropy (0–2 bits)"), "SVG entropy plot is missing.")
         precondition(svgText.contains("Gap frequency (0–100%)"), "SVG gap plot is missing.")
+        precondition(svgText.contains("R2R consensus"), "SVG R2R consensus row is missing.")
         precondition(svgText.contains("&lt;"), "SVG structure symbols were not XML-escaped.")
         precondition(!svgText.contains("#=GR alpha PP"), "Hidden PP rows leaked into the SVG.")
         precondition(String(decoding: pdf.prefix(4), as: UTF8.self) == "%PDF", "PDF header is missing.")

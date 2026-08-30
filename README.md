@@ -6,7 +6,7 @@
 
 ## Install
 
-1. Download `MATER-0.4.2-macOS-universal.zip` from the [latest release](https://github.com/clangeberg/MATER/releases/latest).
+1. Download `MATER-0.5.0-macOS-universal.zip` from the [latest release](https://github.com/clangeberg/MATER/releases/latest).
 2. Unzip it and drag `MATER.app` into Applications.
 3. On first launch, right-click the app and choose **Open**. If macOS still blocks it, allow MATER under **System Settings → Privacy & Security** and open it again.
 
@@ -26,14 +26,16 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Double-click pair selection and triple-click full-stem selection
 - Rectangular multi-sequence editing, shifting, clearing, copying, and pasting
 - Single-sequence gap opening and closing without changing alignment width
-- Pinned reference sequence and calculated RNA consensus rows
+- Optional pinned reference sequence
+- R2R-compatible, GSC-weighted consensus (`A/C/G/U`, `R/Y`, lowercase `n`, or `-`) in a compact row directly above the analysis plots
+- Strong whole-column highlighting when selecting the calculated consensus or a `#=GC SS_cons*`, `RF`, or `cons` cell
 - `#=GR … PP` and `#=GC PP_cons` rows hidden by default without changing the file
 - Live per-column Shannon entropy bar plot (0–2 bits), shown by default
 - Live gap-frequency plot, interactive plot columns, and adjustable analysis thresholds
 - Search by sequence name, motif, or alignment column
 - Navigation among noncanonical pairs, high-entropy columns, gap-rich columns, and validation problems
 - Rolling recovery snapshots, changed-cell highlighting, and baseline region/row reversion
-- Full-alignment vector export to PDF or SVG using the current colors and display options
+- Full-alignment vector export to PDF or SVG using the current colors and display options, including the R2R consensus row when visible
 - Export titles, legends, numbering intervals, adjustable name width, selected rows/columns, and tiled multi-page PDF
 - Shift selected residues left/right into adjacent gaps, automatically expanding a single structural base to its complete stem arm
 - Optionally shift both paired stem arms together in opposite directions to keep the helix in register
@@ -63,6 +65,7 @@ Run the regression suite with:
 
 - Click or drag to select cells; Shift-click or Shift–arrows extends a rectangular selection.
 - Double-click a paired cell to select both partners; triple-click it to select its entire stem.
+- Click or drag in `SS_cons*`, `RF`, `cons`, or the calculated R2R consensus row to highlight complete alignment columns.
 - Type an IUPAC nucleotide to replace selected sequence cells.
 - Delete replaces sequence cells with `-` and annotation cells with `.`.
 - Option–Left/Right shifts the selected block into adjacent gaps. On a single paired base, it automatically shifts that complete stem arm.
@@ -74,7 +77,7 @@ Run the regression suite with:
 - Use **Navigate** to jump directly among analysis and structural problems.
 - Use **Changes** to compare against the opened file, revert a region or row, and manage recovery snapshots.
 - Use **Export** to save the complete or selected colored alignment as vector PDF or SVG.
-- Use **View & columns** to insert or remove gap columns, show PP rows, configure plots, and adjust thresholds.
+- Use **View & columns** to insert or remove gap columns, show PP rows, toggle the R2R consensus, configure plots, and adjust thresholds.
 
 The original file is not modified until you save. Keep versioned copies of important alignments while this early build is being validated.
 

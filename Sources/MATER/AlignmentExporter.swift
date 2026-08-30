@@ -71,10 +71,17 @@ enum AlignmentExporter {
         hidePosteriorProbability: Bool,
         showEntropy: Bool,
         showGap: Bool = false,
+        showConsensus: Bool = false,
         showGrid: Bool,
         fontSize: Double,
         options: AlignmentExportOptions = AlignmentExportOptions()
     ) -> Data {
+        var consensusCharacters = showConsensus ? Array(ConsensusAnalyzer.consensus(in: file)) : []
+        if let selectedColumns = options.selectedColumns, !consensusCharacters.isEmpty {
+            let lower = max(0, selectedColumns.lowerBound)
+            let upper = min(consensusCharacters.count - 1, selectedColumns.upperBound)
+            consensusCharacters = lower <= upper ? Array(consensusCharacters[lower...upper]) : []
+        }
         let preparedFile = options.preparedFile(from: file)
         let snapshot = AlignmentExportSnapshot(
             file: preparedFile,
@@ -83,6 +90,7 @@ enum AlignmentExporter {
             hidePosteriorProbability: hidePosteriorProbability,
             showEntropy: showEntropy,
             showGap: showGap,
+            consensusCharacters: consensusCharacters,
             showGrid: showGrid,
             fontSize: fontSize,
             options: options
@@ -118,8 +126,10 @@ private struct AlignmentExportSnapshot {
     let residueColors: AlignmentResidueColors
     let showEntropy: Bool
     let showGap: Bool
+    let consensusCharacters: [Character]
     let showGrid: Bool
     let stemByColumn: [Int: Int]
+    let stemPairByColumn: [Int: BasePair]
     let canonicalStemColumnsByRecord: [Int: Set<Int>]
     let covariance: [Int: [Int: CovariationClass]]
     let entropyByColumn: [Double]
@@ -142,11 +152,13 @@ private struct AlignmentExportSnapshot {
     var gridOriginX: CGFloat { padding + labelWidth }
     var gridHeaderOriginY: CGFloat { padding + titleHeight + legendHeight }
     var rowsOriginY: CGFloat { gridHeaderOriginY + headerHeight }
-    var entropyOriginY: CGFloat { rowsOriginY + CGFloat(rows.count) * rowHeight }
+    var consensusOriginY: CGFloat { rowsOriginY + CGFloat(rows.count) * rowHeight }
+    var consensusHeight: CGFloat { consensusCharacters.isEmpty ? 0 : rowHeight }
+    var entropyOriginY: CGFloat { consensusOriginY + consensusHeight }
     var size: NSSize {
         NSSize(
             width: padding * 2 + labelWidth + CGFloat(alignmentLength) * cellWidth,
-            height: padding * 2 + titleHeight + legendHeight + headerHeight + CGFloat(rows.count) * rowHeight + entropyHeight
+            height: padding * 2 + titleHeight + legendHeight + headerHeight + CGFloat(rows.count) * rowHeight + consensusHeight + entropyHeight
         )
     }
 
@@ -157,6 +169,7 @@ private struct AlignmentExportSnapshot {
         hidePosteriorProbability: Bool,
         showEntropy: Bool,
         showGap: Bool,
+        consensusCharacters: [Character],
         showGrid: Bool,
         fontSize: Double,
         options: AlignmentExportOptions
@@ -166,6 +179,7 @@ private struct AlignmentExportSnapshot {
         self.residueColors = residueColors
         self.showEntropy = showEntropy
         self.showGap = showGap
+        self.consensusCharacters = consensusCharacters
         self.showGrid = showGrid
         title = options.title.trimmingCharacters(in: .whitespacesAndNewlines)
         includeLegend = options.includeLegend
@@ -200,6 +214,7 @@ private struct AlignmentExportSnapshot {
             }
         }
         stemByColumn = stems
+        stemPairByColumn = stemPairs
 
         var canonicalColumnsByRecord: [Int: Set<Int>] = [:]
         for row in file.sequenceRows {
@@ -233,6 +248,7 @@ private struct AlignmentExportSnapshot {
         var labelTexts = exportRows.map(\.label) + ["Alignment rows"]
         if showEntropy { labelTexts.append("Entropy (0–2 bits)") }
         if showGap { labelTexts.append("Gap frequency (0–100%)") }
+        if !consensusCharacters.isEmpty { labelTexts.append("R2R consensus") }
         let widest = labelTexts.map {
             ($0 as NSString).size(withAttributes: [.font: resolvedFont]).width
         }.max() ?? 0
@@ -265,6 +281,23 @@ private struct AlignmentExportSnapshot {
         return CellStyle(background: background, foreground: foreground)
     }
 
+    func consensusStyle(column: Int, character: Character) -> CellStyle {
+        var background: NSColor?
+        switch colorMode {
+        case .stem:
+            if let pair = stemPairByColumn[column],
+               consensusCharacters.indices.contains(pair.left), consensusCharacters.indices.contains(pair.right),
+               BasePairRules.isCanonical(consensusCharacters[pair.left], consensusCharacters[pair.right]) {
+                background = AlignmentPalette.stemColor(for: pair.stem)
+            }
+        case .residue:
+            background = residueColors.color(for: character)
+        case .covariation, .none:
+            break
+        }
+        return CellStyle(background: background, foreground: .black)
+    }
+
     func drawAppKit(in bounds: NSRect) {
         NSColor.white.setFill()
         bounds.fill()
@@ -277,7 +310,7 @@ private struct AlignmentExportSnapshot {
         }
         if includeLegend { drawLegendAppKit(y: padding + titleHeight) }
 
-        let contentHeight = headerHeight + CGFloat(rows.count) * rowHeight + entropyHeight
+        let contentHeight = headerHeight + CGFloat(rows.count) * rowHeight + consensusHeight + entropyHeight
         NSColor(calibratedWhite: 0.96, alpha: 1).setFill()
         NSRect(x: padding, y: gridHeaderOriginY, width: labelWidth, height: contentHeight).fill()
         NSRect(x: gridOriginX, y: gridHeaderOriginY, width: CGFloat(alignmentLength) * cellWidth, height: headerHeight).fill()
@@ -332,6 +365,10 @@ private struct AlignmentExportSnapshot {
             }
         }
 
+        if !consensusCharacters.isEmpty {
+            drawConsensusAppKit()
+        }
+
         guard showEntropy || showGap else { return }
         var trackY = entropyOriginY
         if showEntropy {
@@ -349,6 +386,42 @@ private struct AlignmentExportSnapshot {
                 values: gapFrequencyByColumn,
                 color: .systemTeal,
                 y: trackY
+            )
+        }
+    }
+
+    private func drawConsensusAppKit() {
+        let y = consensusOriginY
+        NSColor(calibratedWhite: 0.96, alpha: 1).setFill()
+        NSRect(x: padding, y: y, width: labelWidth, height: rowHeight).fill()
+        NSColor(calibratedWhite: 0.76, alpha: 1).setStroke()
+        let top = NSBezierPath()
+        top.move(to: NSPoint(x: padding, y: y + 0.5))
+        top.line(to: NSPoint(x: size.width - padding, y: y + 0.5))
+        top.stroke()
+        ("R2R consensus" as NSString).draw(
+            in: NSRect(x: padding + 10, y: y + 3, width: labelWidth - 18, height: rowHeight - 4),
+            withAttributes: [.font: boldFont, .foregroundColor: NSColor.systemPurple]
+        )
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        for column in 0..<min(alignmentLength, consensusCharacters.count) {
+            let character = consensusCharacters[column]
+            let cell = NSRect(x: gridOriginX + CGFloat(column) * cellWidth, y: y, width: cellWidth, height: rowHeight)
+            let cellStyle = consensusStyle(column: column, character: character)
+            if let background = cellStyle.background {
+                background.setFill()
+                cell.fill()
+            }
+            if showGrid {
+                NSColor(calibratedWhite: 0.78, alpha: 0.55).setStroke()
+                let grid = NSBezierPath(rect: cell.insetBy(dx: 0.25, dy: 0.25))
+                grid.lineWidth = 0.5
+                grid.stroke()
+            }
+            (String(character) as NSString).draw(
+                in: NSRect(x: cell.minX, y: cell.minY + 2, width: cell.width, height: cell.height - 2),
+                withAttributes: [.font: font, .foregroundColor: cellStyle.foreground, .paragraphStyle: centered]
             )
         }
     }
@@ -435,7 +508,7 @@ private struct AlignmentExportSnapshot {
                 legendX += 25 + (label as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: max(8, font.pointSize - 2))]).width
             }
         }
-        let contentHeight = headerHeight + CGFloat(rows.count) * rowHeight + entropyHeight
+        let contentHeight = headerHeight + CGFloat(rows.count) * rowHeight + consensusHeight + entropyHeight
         svg.append(rect(x: padding, y: gridHeaderOriginY, width: labelWidth, height: contentHeight, color: NSColor(calibratedWhite: 0.96, alpha: 1)))
         svg.append(rect(x: gridOriginX, y: gridHeaderOriginY, width: CGFloat(alignmentLength) * cellWidth, height: headerHeight, color: NSColor(calibratedWhite: 0.96, alpha: 1)))
 
@@ -463,6 +536,25 @@ private struct AlignmentExportSnapshot {
                     svg.append(##"<rect x="\##(n(x + 0.25))" y="\##(n(y + 0.25))" width="\##(n(cellWidth - 0.5))" height="\##(n(rowHeight - 0.5))" fill="none" stroke="#c7c7cc" stroke-opacity="0.55" stroke-width="0.5"/>"##)
                 }
                 svg.append(text(String(character), x: x + cellWidth / 2, y: y + rowHeight / 2, size: font.pointSize, color: cellStyle.foreground, anchor: "middle", weight: row.kind.isStructure ? "600" : "400"))
+            }
+        }
+
+        if !consensusCharacters.isEmpty {
+            let y = consensusOriginY
+            svg.append(rect(x: padding, y: y, width: labelWidth, height: rowHeight, color: NSColor(calibratedWhite: 0.96, alpha: 1)))
+            svg.append(##"<line x1="\##(n(padding))" y1="\##(n(y + 0.5))" x2="\##(n(size.width - padding))" y2="\##(n(y + 0.5))" stroke="#b8b8bd"/>"##)
+            svg.append(text("R2R consensus", x: padding + 10, y: y + rowHeight / 2, size: boldFont.pointSize, color: .systemPurple, anchor: "start", weight: "600"))
+            for column in 0..<min(alignmentLength, consensusCharacters.count) {
+                let character = consensusCharacters[column]
+                let x = gridOriginX + CGFloat(column) * cellWidth
+                let cellStyle = consensusStyle(column: column, character: character)
+                if let background = cellStyle.background {
+                    svg.append(rect(x: x, y: y, width: cellWidth, height: rowHeight, color: background))
+                }
+                if showGrid {
+                    svg.append(##"<rect x="\##(n(x + 0.25))" y="\##(n(y + 0.25))" width="\##(n(cellWidth - 0.5))" height="\##(n(rowHeight - 0.5))" fill="none" stroke="#c7c7cc" stroke-opacity="0.55" stroke-width="0.5"/>"##)
+                }
+                svg.append(text(String(character), x: x + cellWidth / 2, y: y + rowHeight / 2, size: font.pointSize, color: cellStyle.foreground, anchor: "middle"))
             }
         }
 

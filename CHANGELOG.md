@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Replace the simple majority row with R2R's standard GSC-weighted sequence consensus rules and exact `A/C/G/U`, `R/Y`, lowercase `n`, and `-` output alphabet.
+- Match R2R's 97%, 90%, and 75% identity and purine/pyrimidine thresholds; 97%, 90%, 75%, and 50% nucleotide-presence thresholds; fragment-end handling; gap treatment; and ambiguity-input exclusion.
+- Move the calculated consensus into the synchronized alignment canvas directly above entropy and gap-frequency plots.
+- Highlight the entire selected column from `SS_cons*`, `RF`, `cons`, and calculated-consensus rows.
+- Keep the calculated consensus read-only while supporting selection, keyboard navigation, copying, and PDF/SVG export.
+
 ## 0.4.2
 
 - Expand a single selected structural base to its complete stem arm when shifting.

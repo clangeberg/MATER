@@ -39,6 +39,7 @@ final class AlignmentCanvasView: NSView {
     private weak var state: EditorState?
     private weak var residuePalette: ResiduePaletteSettings?
     private var dragging = false
+    private var draggingWholeColumn = false
 
     private var font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
     private var boldFont = NSFont.monospacedSystemFont(ofSize: 15, weight: .semibold)
@@ -57,13 +58,16 @@ final class AlignmentCanvasView: NSView {
     private var covariance: [Int: [Int: CovariationClass]]?
     private var entropyByColumn: [Double] = []
     private var gapFrequencyByColumn: [Double] = []
+    private var consensusCharacters: [Character] = []
     private var changedColumnsByRecordIndex: [Int: Set<Int>] = [:]
     private var showEntropyPlot = false
     private var showGapPlot = false
+    private var showConsensus = false
     private var cachedRevision: UInt64?
     private var cachedHidePosteriorProbability: Bool?
     private var cachedShowEntropyPlot: Bool?
     private var cachedShowGapPlot: Bool?
+    private var cachedShowConsensus: Bool?
     private var cachedFontSize: Double?
     private let centeredParagraph: NSParagraphStyle = {
         let paragraph = NSMutableParagraphStyle()
@@ -89,7 +93,8 @@ final class AlignmentCanvasView: NSView {
             cachedFontSize = state.fontSize
         }
 
-        let alignmentChanged = cachedRevision != document.revision
+        let revisionChanged = cachedRevision != document.revision
+        let alignmentChanged = revisionChanged
             || cachedHidePosteriorProbability != state.hidePosteriorProbability
         let analysisVisibilityChanged = cachedShowEntropyPlot != state.showEntropyPlot
             || cachedShowGapPlot != state.showGapPlot
@@ -110,20 +115,29 @@ final class AlignmentCanvasView: NSView {
            alignmentChanged || analysisVisibilityChanged || gapFrequencyByColumn.count != alignmentLength {
             gapFrequencyByColumn = document.analysis.gapFrequencyByColumn
         }
+        if revisionChanged || cachedShowConsensus != state.showConsensus {
+            consensusCharacters = state.showConsensus ? Array(ConsensusAnalyzer.consensus(in: document.file)) : []
+        }
         if alignmentChanged || state.showChanges { changedColumnsByRecordIndex = document.changedColumnsByRecordIndex }
         showEntropyPlot = state.showEntropyPlot
         showGapPlot = state.showGapPlot
+        showConsensus = state.showConsensus
         cachedShowEntropyPlot = state.showEntropyPlot
         cachedShowGapPlot = state.showGapPlot
+        cachedShowConsensus = state.showConsensus
 
         if displayIndexByModelRow[state.selectedRow] == nil, let nearest = displayRows.min(by: {
             abs($0.modelIndex - state.selectedRow) < abs($1.modelIndex - state.selectedRow)
         }) {
-            state.select(row: nearest.modelIndex, column: state.selectedColumn)
+            state.select(
+                row: nearest.modelIndex,
+                column: state.selectedColumn,
+                wholeColumn: nearest.row.kind.selectsWholeColumn
+            )
         }
 
         let width = labelWidth + CGFloat(alignmentLength) * cellWidth + 36
-        let height = headerHeight + CGFloat(displayRows.count) * rowHeight + analysisAreaHeight + 20
+        let height = headerHeight + CGFloat(displayRows.count) * rowHeight + consensusRowHeight + analysisAreaHeight + 20
         let desiredSize = NSSize(width: max(width, 600), height: max(height, 300))
         if frame.size != desiredSize { frame.size = desiredSize }
         needsDisplay = true
@@ -232,7 +246,7 @@ final class AlignmentCanvasView: NSView {
                         )
                     }
                 }
-                if state.selectedRows.count == 1, displayed.modelIndex == state.selectedRow, state.selectedColumnSet.count == 1 {
+                if !state.selectingConsensus, state.selectedRows.count == 1, displayed.modelIndex == state.selectedRow, state.selectedColumnSet.count == 1 {
                         drawPartnerHighlights(displayIndex: displayIndex, selectedColumn: state.selectedColumn)
                 }
                 for selection in state.selectedColumnRanges {
@@ -242,7 +256,7 @@ final class AlignmentCanvasView: NSView {
                         width: CGFloat(selection.count) * cellWidth,
                         height: rowHeight
                     )
-                    let rowSelected = state.selectedRows.contains(displayed.modelIndex)
+                    let rowSelected = !state.highlightWholeColumn && state.selectedRows.contains(displayed.modelIndex)
                     NSColor.selectedContentBackgroundColor.withAlphaComponent(rowSelected ? 0.20 : 0.045).setFill()
                     selectionRect.fill()
                     if rowSelected {
@@ -262,6 +276,14 @@ final class AlignmentCanvasView: NSView {
 
         if showEntropyPlot || showGapPlot {
             drawAnalysisPlots(dirtyRect: dirtyRect, startColumn: startColumn, endColumn: endColumn)
+        }
+
+        if showConsensus {
+            drawConsensusRow(dirtyRect: dirtyRect, startColumn: startColumn, endColumn: endColumn)
+        }
+
+        if state.highlightWholeColumn {
+            drawWholeColumnSelection()
         }
 
         NSColor.separatorColor.setStroke()
@@ -370,13 +392,99 @@ final class AlignmentCanvasView: NSView {
         }
     }
 
+    private var consensusRowHeight: CGFloat { showConsensus ? rowHeight : 0 }
+
+    private var consensusY: CGFloat {
+        headerHeight + CGFloat(displayRows.count) * rowHeight
+    }
+
+    private func drawConsensusRow(dirtyRect: NSRect, startColumn: Int, endColumn: Int) {
+        let area = NSRect(x: 0, y: consensusY, width: bounds.width, height: rowHeight)
+        guard dirtyRect.intersects(area) else { return }
+
+        NSColor.windowBackgroundColor.setFill()
+        area.fill()
+        NSColor.controlBackgroundColor.setFill()
+        NSRect(x: 0, y: consensusY, width: labelWidth, height: rowHeight).fill()
+        NSColor.separatorColor.setStroke()
+        let separator = NSBezierPath()
+        separator.move(to: NSPoint(x: 0, y: consensusY + 0.5))
+        separator.line(to: NSPoint(x: bounds.width, y: consensusY + 0.5))
+        separator.stroke()
+        ("R2R consensus" as NSString).draw(
+            in: NSRect(x: 10, y: consensusY + 3, width: labelWidth - 18, height: rowHeight - 4),
+            withAttributes: [.font: boldFont, .foregroundColor: NSColor.systemPurple]
+        )
+
+        guard endColumn >= startColumn else { return }
+        let finalColumn = min(endColumn, consensusCharacters.count - 1)
+        guard finalColumn >= startColumn else { return }
+        for column in startColumn...finalColumn {
+            let rect = NSRect(
+                x: labelWidth + CGFloat(column) * cellWidth,
+                y: consensusY,
+                width: cellWidth,
+                height: rowHeight
+            )
+            let character = consensusCharacters[column]
+            var background: NSColor?
+            if let state {
+                switch state.colorMode {
+                case .stem:
+                    if let pair = stemPairByColumn[column],
+                       consensusCharacters.indices.contains(pair.left), consensusCharacters.indices.contains(pair.right),
+                       BasePairRules.isCanonical(consensusCharacters[pair.left], consensusCharacters[pair.right]) {
+                        background = AlignmentPalette.stemColor(for: pair.stem)
+                    }
+                case .residue:
+                    background = residuePalette?.color(for: character)
+                case .covariation, .none:
+                    break
+                }
+            }
+            if let background {
+                background.setFill()
+                rect.fill()
+            }
+            if state?.showGrid == true {
+                NSColor.gridColor.withAlphaComponent(0.20).setStroke()
+                let grid = NSBezierPath(rect: rect.insetBy(dx: 0.25, dy: 0.25))
+                grid.lineWidth = 0.5
+                grid.stroke()
+            }
+            (String(character) as NSString).draw(
+                in: NSRect(x: rect.minX, y: rect.minY + 2, width: rect.width, height: rect.height - 2),
+                withAttributes: [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: centeredParagraph]
+            )
+        }
+    }
+
+    private func drawWholeColumnSelection() {
+        guard let state else { return }
+        let selectionHeight = headerHeight + CGFloat(displayRows.count) * rowHeight + consensusRowHeight + analysisAreaHeight
+        for selection in state.selectedColumnRanges {
+            let rect = NSRect(
+                x: labelWidth + CGFloat(selection.lowerBound) * cellWidth,
+                y: 0,
+                width: CGFloat(selection.count) * cellWidth,
+                height: selectionHeight
+            )
+            NSColor.selectedContentBackgroundColor.withAlphaComponent(0.14).setFill()
+            rect.fill()
+            NSColor.selectedContentBackgroundColor.withAlphaComponent(0.82).setStroke()
+            let outline = NSBezierPath(rect: rect.insetBy(dx: 0.75, dy: 0.75))
+            outline.lineWidth = 1.5
+            outline.stroke()
+        }
+    }
+
     private var analysisTrackHeight: CGFloat { max(50, rowHeight * 2.25) }
     private var analysisAreaHeight: CGFloat {
         CGFloat((showEntropyPlot ? 1 : 0) + (showGapPlot ? 1 : 0)) * analysisTrackHeight
     }
 
     private func drawAnalysisPlots(dirtyRect: NSRect, startColumn: Int, endColumn: Int) {
-        var y = headerHeight + CGFloat(displayRows.count) * rowHeight
+        var y = consensusY + consensusRowHeight
         if showEntropyPlot {
             drawAnalysisTrack(
                 title: "Entropy (0–2 bits)",
@@ -460,7 +568,7 @@ final class AlignmentCanvasView: NSView {
 
     private func location(for event: NSEvent) -> (row: Int, column: Int)? {
         let point = convert(event.locationInWindow, from: nil)
-        guard point.y >= headerHeight else { return nil }
+        guard point.y >= headerHeight, point.x >= labelWidth else { return nil }
         let displayIndex = Int((point.y - headerHeight) / rowHeight)
         let column = Int((point.x - labelWidth) / cellWidth)
         guard displayRows.indices.contains(displayIndex), column >= 0, column < alignmentLength else { return nil }
@@ -470,16 +578,44 @@ final class AlignmentCanvasView: NSView {
     private func analysisColumn(for event: NSEvent) -> Int? {
         guard analysisAreaHeight > 0 else { return nil }
         let point = convert(event.locationInWindow, from: nil)
-        let analysisY = headerHeight + CGFloat(displayRows.count) * rowHeight
-        guard point.y >= analysisY, point.y < analysisY + analysisAreaHeight else { return nil }
+        let analysisY = consensusY + consensusRowHeight
+        guard point.y >= analysisY, point.y < analysisY + analysisAreaHeight, point.x >= labelWidth else { return nil }
         let column = Int((point.x - labelWidth) / cellWidth)
+        return column >= 0 && column < alignmentLength ? column : nil
+    }
+
+    private func consensusColumn(for event: NSEvent) -> Int? {
+        guard showConsensus else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        guard point.y >= consensusY, point.y < consensusY + rowHeight else { return nil }
+        return alignmentColumn(at: point.x)
+    }
+
+    private func alignmentColumn(at x: CGFloat) -> Int? {
+        guard x >= labelWidth else { return nil }
+        let column = Int((x - labelWidth) / cellWidth)
         return column >= 0 && column < alignmentLength ? column : nil
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard let state else { return }
+        if let column = consensusColumn(for: event) {
+            dragging = true
+            draggingWholeColumn = true
+            state.select(
+                row: state.selectedRow,
+                column: column,
+                extending: event.modifierFlags.contains(.shift),
+                wholeColumn: true,
+                consensus: true
+            )
+            state.statusMessage = "R2R consensus • column \(column + 1)"
+            needsDisplay = true
+            return
+        }
         if let column = analysisColumn(for: event) {
+            draggingWholeColumn = false
             state.select(row: state.selectedRow, column: column)
             updateStatus()
             needsDisplay = true
@@ -487,7 +623,10 @@ final class AlignmentCanvasView: NSView {
         }
         guard let location = location(for: event) else { return }
         dragging = true
+        let selectsWholeColumn = displayRows[displayIndexByModelRow[location.row] ?? 0].row.kind.selectsWholeColumn
+        draggingWholeColumn = selectsWholeColumn
         if event.clickCount >= 3, let stem = stemByColumn[location.column] {
+            draggingWholeColumn = false
             let columns = Set(pairs.filter { $0.stem == stem }.flatMap { [$0.left, $0.right] })
             state.selectColumns(columns, row: location.row)
             state.statusMessage = "Selected stem \(stem + 1) (\(columns.count) paired columns)."
@@ -495,24 +634,46 @@ final class AlignmentCanvasView: NSView {
             return
         }
         if event.clickCount == 2, let partners = partnersByColumn[location.column], !partners.isEmpty {
+            draggingWholeColumn = false
             state.selectColumns(Set(partners + [location.column]), row: location.row)
             state.statusMessage = "Selected both base-pair partners."
             needsDisplay = true
             return
         }
-        state.select(row: location.row, column: location.column, extending: event.modifierFlags.contains(.shift))
+        state.select(
+            row: location.row,
+            column: location.column,
+            extending: event.modifierFlags.contains(.shift),
+            wholeColumn: selectsWholeColumn
+        )
         updateStatus()
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard dragging, let location = location(for: event), let state else { return }
-        state.select(row: location.row, column: location.column, extending: true)
+        guard dragging, let state else { return }
+        if draggingWholeColumn {
+            let point = convert(event.locationInWindow, from: nil)
+            guard let column = alignmentColumn(at: point.x) else { return }
+            state.select(
+                row: state.selectedRow,
+                column: column,
+                extending: true,
+                wholeColumn: true,
+                consensus: state.selectingConsensus
+            )
+        } else {
+            guard let location = location(for: event) else { return }
+            state.select(row: location.row, column: location.column, extending: true)
+        }
         updateStatus()
         needsDisplay = true
     }
 
-    override func mouseUp(with event: NSEvent) { dragging = false }
+    override func mouseUp(with event: NSEvent) {
+        dragging = false
+        draggingWholeColumn = false
+    }
 
     override func keyDown(with event: NSEvent) {
         guard let document, let state else { return }
@@ -529,10 +690,13 @@ final class AlignmentCanvasView: NSView {
             if key == "c" { copySelection(); return }
             if key == "v" { pasteSelection(); return }
             if key == "a" {
-                let sequenceModelRows = document.analysis.rows.indices.filter { document.analysis.rows[$0].kind.isSequence }
-                if let firstRow = sequenceModelRows.first, let lastRow = sequenceModelRows.last {
-                    state.anchorRow = firstRow
-                    state.selectedRow = lastRow
+                if !state.selectingConsensus {
+                    let sequenceModelRows = document.analysis.rows.indices.filter { document.analysis.rows[$0].kind.isSequence }
+                    if let firstRow = sequenceModelRows.first, let lastRow = sequenceModelRows.last {
+                        state.anchorRow = firstRow
+                        state.selectedRow = lastRow
+                    }
+                    state.highlightWholeColumn = false
                 }
                 state.anchorColumn = 0
                 state.selectedColumn = max(0, document.file.alignmentLength - 1)
@@ -561,9 +725,21 @@ final class AlignmentCanvasView: NSView {
         case 126: move(rowDelta: -1, columnDelta: 0, extending: shift)
         case 51, 117: replaceSelectionWithGap()
         case 115:
-            state.select(row: state.selectedRow, column: 0, extending: shift)
+            state.select(
+                row: state.selectedRow,
+                column: 0,
+                extending: shift,
+                wholeColumn: state.selectingConsensus || document.analysis.rows[state.selectedRow].kind.selectsWholeColumn,
+                consensus: state.selectingConsensus
+            )
         case 119:
-            state.select(row: state.selectedRow, column: max(0, document.file.alignmentLength - 1), extending: shift)
+            state.select(
+                row: state.selectedRow,
+                column: max(0, document.file.alignmentLength - 1),
+                extending: shift,
+                wholeColumn: state.selectingConsensus || document.analysis.rows[state.selectedRow].kind.selectsWholeColumn,
+                consensus: state.selectingConsensus
+            )
         default:
             guard !command, !control, let characters = event.charactersIgnoringModifiers, characters.count == 1, let character = characters.first else {
                 super.keyDown(with: event); return
@@ -576,16 +752,43 @@ final class AlignmentCanvasView: NSView {
 
     private func move(rowDelta: Int, columnDelta: Int, extending: Bool) {
         guard let state, !displayRows.isEmpty else { return }
+        if state.selectingConsensus {
+            if rowDelta < 0 {
+                let displayed = displayRows[displayRows.count - 1]
+                state.select(
+                    row: displayed.modelIndex,
+                    column: state.selectedColumn,
+                    extending: extending,
+                    wholeColumn: displayed.row.kind.selectsWholeColumn
+                )
+                scrollToVisible(cellRect(row: displayed.modelIndex, column: state.selectedColumn).insetBy(dx: -cellWidth * 2, dy: -rowHeight))
+                return
+            }
+            guard rowDelta == 0 else { return }
+            let column = max(0, min(state.selectedColumn + columnDelta, alignmentLength - 1))
+            state.select(row: state.selectedRow, column: column, extending: extending, wholeColumn: true, consensus: true)
+            let rect = NSRect(x: labelWidth + CGFloat(column) * cellWidth, y: consensusY, width: cellWidth, height: rowHeight)
+            scrollToVisible(rect.insetBy(dx: -cellWidth * 2, dy: -rowHeight))
+            return
+        }
         let currentDisplayIndex = displayIndexByModelRow[state.selectedRow] ?? 0
         let targetDisplayIndex = max(0, min(currentDisplayIndex + rowDelta, displayRows.count - 1))
         let row = displayRows[targetDisplayIndex].modelIndex
         let column = max(0, min(state.selectedColumn + columnDelta, alignmentLength - 1))
-        state.select(row: row, column: column, extending: extending)
+        state.select(
+            row: row,
+            column: column,
+            extending: extending,
+            wholeColumn: displayRows[targetDisplayIndex].row.kind.selectsWholeColumn
+        )
         scrollToVisible(cellRect(row: row, column: column).insetBy(dx: -cellWidth * 2, dy: -rowHeight))
     }
 
     private func type(_ input: Character) {
-        guard let document, let state, document.analysis.rows.indices.contains(state.selectedRow) else { return }
+        guard let document, let state, !state.selectingConsensus, document.analysis.rows.indices.contains(state.selectedRow) else {
+            NSSound.beep()
+            return
+        }
         let modelRows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
         let sequenceRows = modelRows.filter { document.analysis.rows[$0].kind.isSequence }
         let targetRows = modelRows.count > 1 ? sequenceRows : modelRows
@@ -608,11 +811,18 @@ final class AlignmentCanvasView: NSView {
             }
         }
         let next = min(document.file.alignmentLength - 1, (columns.max() ?? state.selectedColumn) + 1)
-        state.select(row: state.selectedRow, column: next)
+        state.select(
+            row: state.selectedRow,
+            column: next,
+            wholeColumn: document.analysis.rows[state.selectedRow].kind.selectsWholeColumn
+        )
     }
 
     private func replaceSelectionWithGap() {
-        guard let document, let state, document.analysis.rows.indices.contains(state.selectedRow) else { return }
+        guard let document, let state, !state.selectingConsensus, document.analysis.rows.indices.contains(state.selectedRow) else {
+            NSSound.beep()
+            return
+        }
         let rows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
         let columns = state.selectedColumnSet
         document.mutate("Clear Cells", undoManager: window?.undoManager) { file in
@@ -624,7 +834,10 @@ final class AlignmentCanvasView: NSView {
     }
 
     private func shiftSelection(direction: Int) {
-        guard let document, let state else { return }
+        guard let document, let state, !state.selectingConsensus else {
+            NSSound.beep()
+            return
+        }
         if !AlignmentShiftController.shift(
             document: document,
             state: state,
@@ -638,6 +851,13 @@ final class AlignmentCanvasView: NSView {
     private func copySelection() {
         guard let document, let state, document.analysis.rows.indices.contains(state.selectedRow) else { return }
         let columns = state.orderedSelectedColumns
+        if state.selectingConsensus {
+            let text = String(columns.compactMap { consensusCharacters.indices.contains($0) ? consensusCharacters[$0] : nil })
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            state.statusMessage = "Copied \(columns.count) R2R consensus column(s)."
+            return
+        }
         let selectedRows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
         let lines = selectedRows.map { modelRow -> String in
             let row = document.analysis.rows[modelRow]
@@ -651,7 +871,10 @@ final class AlignmentCanvasView: NSView {
     }
 
     private func pasteSelection() {
-        guard let document, let state, let source = NSPasteboard.general.string(forType: .string) else { return }
+        guard let document, let state, !state.selectingConsensus, let source = NSPasteboard.general.string(forType: .string) else {
+            NSSound.beep()
+            return
+        }
         let lines = source.components(separatedBy: .newlines).map { $0.filter { !$0.isWhitespace } }.filter { !$0.isEmpty }
         guard !lines.isEmpty else { return }
         let targetRows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
@@ -675,7 +898,10 @@ final class AlignmentCanvasView: NSView {
     }
 
     private func openGapAtCursor() {
-        guard let document, let state else { return }
+        guard let document, let state, !state.selectingConsensus else {
+            NSSound.beep()
+            return
+        }
         var changed = false
         document.mutate("Open Gap", undoManager: window?.undoManager) { file in
             changed = file.openGap(row: state.selectedRow, at: state.selectedColumn)
@@ -685,7 +911,10 @@ final class AlignmentCanvasView: NSView {
     }
 
     private func closeGapAtCursor() {
-        guard let document, let state else { return }
+        guard let document, let state, !state.selectingConsensus else {
+            NSSound.beep()
+            return
+        }
         var changed = false
         document.mutate("Close Gap", undoManager: window?.undoManager) { file in
             changed = file.closeGap(row: state.selectedRow, at: state.selectedColumn)
@@ -697,9 +926,9 @@ final class AlignmentCanvasView: NSView {
     private func updateStatus() {
         guard let document, let state, document.analysis.rows.indices.contains(state.selectedRow) else { return }
         let row = document.analysis.rows[state.selectedRow]
-        var message = "\(row.label) • column \(state.selectedColumn + 1)"
+        var message = "\(state.selectingConsensus ? "R2R consensus" : row.label) • column \(state.selectedColumn + 1)"
         if state.selectedCellCount > 1 { message += " • \(state.selectedRows.count) row(s) × \(state.selectedColumnSet.count) column(s)" }
-        if let pair = pairs.first(where: { $0.left == state.selectedColumn || $0.right == state.selectedColumn }) {
+        if !state.selectingConsensus, let pair = pairs.first(where: { $0.left == state.selectedColumn || $0.right == state.selectedColumn }) {
             message += " • paired with \((pair.left == state.selectedColumn ? pair.right : pair.left) + 1) in \(pair.structureTag)"
         }
         if state.showEntropyPlot, entropyByColumn.indices.contains(state.selectedColumn) {
