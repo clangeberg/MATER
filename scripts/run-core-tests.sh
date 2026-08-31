@@ -18,6 +18,7 @@ swiftc \
   -module-cache-path "$module_cache" \
   "$project_dir/Sources/MATER/StockholmModel.swift" \
   "$project_dir/Sources/MATER/StructureModel.swift" \
+  "$project_dir/Sources/MATER/CurationAnalysis.swift" \
   "$project_dir/Sources/MATER/AlignmentNavigation.swift" \
   "$project_dir/Tests/CoreTestMain.swift" \
   -o "$test_binary"
@@ -29,6 +30,7 @@ swiftc \
   -module-cache-path "$module_cache" \
   "$project_dir/Sources/MATER/StockholmModel.swift" \
   "$project_dir/Sources/MATER/StructureModel.swift" \
+  "$project_dir/Sources/MATER/CurationAnalysis.swift" \
   "$project_dir/Sources/MATER/EditorState.swift" \
   "$project_dir/Tests/EditorStateRegressionMain.swift" \
   -o "$state_test_binary"
@@ -55,6 +57,7 @@ swiftc \
   -module-cache-path "$module_cache" \
   "$project_dir/Sources/MATER/StockholmModel.swift" \
   "$project_dir/Sources/MATER/StructureModel.swift" \
+  "$project_dir/Sources/MATER/CurationAnalysis.swift" \
   "$project_dir/Sources/MATER/EditorState.swift" \
   "$project_dir/Sources/MATER/StockholmDocument.swift" \
   "$project_dir/Sources/MATER/AlignmentShiftController.swift" \

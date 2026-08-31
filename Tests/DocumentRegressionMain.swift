@@ -7,6 +7,16 @@ struct DocumentRegressionMain {
     static func main() {
         let document = StockholmDocument()
         precondition(document.changeSummary.changedCells == 0)
+        precondition(!document.sequenceEditingUnlocked, "Alignment Integrity mode should be enabled by default.")
+        precondition(document.integrityReport.isIntact)
+
+        document.mutate("Blocked residue edit", undoManager: nil) { file in
+            file.replaceCharacter(row: 0, column: 0, with: "A")
+        }
+        precondition(document.file.character(row: 0, column: 0) == "G", "Integrity lock allowed a residue replacement.")
+        precondition(!document.integrityNotice.isEmpty, "Blocked integrity edit was not reported.")
+
+        document.sequenceEditingUnlocked = true
 
         document.mutate("Test edit", undoManager: nil) { file in
             file.replaceCharacter(row: 0, column: 0, with: "A")
@@ -28,8 +38,26 @@ struct DocumentRegressionMain {
         precondition(document.restoreLatestRecovery(undoManager: nil), "Could not restore the latest recovery snapshot.")
         precondition(document.file.character(row: 0, column: 0) == "C", "Recovery restored the wrong document state.")
         precondition(document.recoverySnapshotCount > 0)
+        document.sequenceEditingUnlocked = false
+        do {
+            _ = try document.snapshot(contentType: .stockholmAlignment)
+            preconditionFailure("Saving a sequence-altered document while integrity-locked should fail.")
+        } catch is AlignmentIntegrityError {
+            // Expected: the explicit unlock is required to save residue changes.
+        } catch {
+            preconditionFailure("Unexpected integrity-save error: \(error)")
+        }
+        let repairedCells = document.restoreBaselineSelection(rows: [0], columns: [0], undoManager: nil)
+        precondition(repairedCells == 1, "Integrity mode did not permit a baseline repair.")
+        precondition(document.integrityReport.isIntact, "Baseline repair did not restore sequence integrity.")
+        do {
+            _ = try document.snapshot(contentType: .stockholmAlignment)
+        } catch {
+            preconditionFailure("An integrity-repaired document should save while locked: \(error)")
+        }
 
         let shiftDocument = StockholmDocument()
+        shiftDocument.sequenceEditingUnlocked = true
         shiftDocument.mutate("Prepare stem shift", undoManager: nil) { file in
             for row in file.sequenceRows {
                 file.records[row.recordIndex].aligned = "-ACG----CGU-"
@@ -38,6 +66,7 @@ struct DocumentRegressionMain {
                 file.records[structureRow.recordIndex].aligned = ".<<<....>>>."
             }
         }
+        shiftDocument.sequenceEditingUnlocked = false
         let state = EditorState()
         state.select(row: 0, column: 10)
         precondition(

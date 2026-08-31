@@ -11,6 +11,9 @@ struct CoreTestMain {
         covariationClassification()
         calculatesColumnEntropy()
         calculatesR2RConsensusAndGapFrequency()
+        verifiesSequenceIntegrity()
+        calculatesStructuralQuality()
+        suggestsSafeStemImprovements()
         alignmentEditingKeepsRowsSynchronized()
         advancedGapAndRectangularEditing()
         stemAwareAndLinkedArmShifting()
@@ -187,6 +190,74 @@ struct CoreTestMain {
         expect(ConsensusAnalyzer.symbol(for: [0, 0.50, 0, 0.50, 0]) == "Y", "pyrimidine ambiguity threshold")
         expect(ConsensusAnalyzer.symbol(for: [0.40, 0.20, 0.20, 0.10, 0.10]) == "n", "R2R nucleotide-presence symbol")
         expect(ConsensusAnalyzer.symbol(for: [0.20, 0, 0, 0, 0.80]) == "-", "R2R low-presence symbol")
+    }
+
+    private static func verifiesSequenceIntegrity() {
+        let baseline = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one A-CG
+        two AU-G
+        //
+        """)
+        var gapOnlyEdit = baseline
+        expect(gapOnlyEdit.shift(row: 0, selection: 2...2, direction: -1), "integrity gap-shift fixture failed")
+        expect(
+            SequenceIntegrityAnalyzer.preservesSequences(from: baseline, to: gapOnlyEdit),
+            "gap-only alignment edit changed sequence integrity"
+        )
+        var residueEdit = baseline
+        residueEdit.replaceCharacter(row: 0, column: 0, with: "U")
+        let report = SequenceIntegrityAnalyzer.report(current: residueEdit, baseline: baseline)
+        expect(!report.isIntact && report.changedSequenceCount == 1, "residue change was not reported by the integrity analyzer")
+    }
+
+    private static func calculatesStructuralQuality() {
+        let file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        reference GC
+        canonical AU
+        invalid GG
+        gapped G-
+        ambiguous GN
+        #=GC SS_cons <>
+        //
+        """)
+        guard let quality = StructuralQualityAnalyzer.stem(containing: 0, in: file) else {
+            expect(false, "structural quality was not calculated")
+            return
+        }
+        expect(quality.canonical == 2, "structural canonical count")
+        expect(quality.noncanonical == 1, "structural noncanonical count")
+        expect(quality.gaps == 1, "structural gap count")
+        expect(quality.ambiguous == 1, "structural ambiguity count")
+        expect(quality.issues.count == 3, "structural issue list")
+        expect(quality.problemRecordIndices.count == 1, "only definite pair violations should enter the problem filter")
+        expect(abs(quality.canonicalFraction - (2.0 / 3.0)) < 0.000_001, "canonical support should use occupied, evaluable pairs")
+        expect(abs(quality.noncanonicalFraction - (1.0 / 3.0)) < 0.000_001, "violation rate should use occupied, evaluable pairs")
+        let problemFractions = StructuralQualityAnalyzer.problemFractionsByColumn(in: file)
+        expect(problemFractions.count == 2, "pair-violation heatmap width")
+        expect(abs(problemFractions[0] - (1.0 / 3.0)) < 0.000_001, "gaps and ambiguity should not inflate pair violations")
+        expect(abs(problemFractions[1] - (1.0 / 3.0)) < 0.000_001, "paired columns should share the violation fraction")
+    }
+
+    private static func suggestsSafeStemImprovements() {
+        let file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        needs_shift -A--U-
+        aligned     A---U-
+        #=GC SS_cons <...>.
+        //
+        """)
+        let suggestions = StemEditSuggester.suggestions(in: file, modelRow: 0, column: 0, preferLinked: true)
+        expect(!suggestions.isEmpty, "no gap-only stem improvement was suggested")
+        guard let suggestion = suggestions.first(where: { $0.proposedAligned == "A---U-" }) else {
+            expect(false, "expected close-gap stem improvement was not suggested")
+            return
+        }
+        expect(suggestion.after.canonical > suggestion.before.canonical, "suggestion did not improve canonical support")
+        var proposed = file
+        proposed.records[suggestion.recordIndex].aligned = suggestion.proposedAligned
+        expect(SequenceIntegrityAnalyzer.preservesSequences(from: file, to: proposed), "suggestion changed the ungapped sequence")
     }
 
     private static func alignmentEditingKeepsRowsSynchronized() {

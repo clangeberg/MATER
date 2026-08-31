@@ -8,6 +8,8 @@ struct DocumentEditorView: View {
     @State private var searchText = ""
     @State private var pendingExportFormat: AlignmentExportFormat?
     @State private var exportConfiguration = AlignmentExportConfiguration()
+    @State private var suggestedEdits: [StemEditSuggestion] = []
+    @State private var showingSuggestedEdits = false
     @FocusState private var searchFieldFocused: Bool
     @Environment(\.undoManager) private var undoManager
 
@@ -19,11 +21,23 @@ struct DocumentEditorView: View {
                 PinnedReferencePanel(document: document, state: state, residuePalette: residuePalette)
                 Divider()
             }
-            AlignmentCanvas(document: document, state: state, residuePalette: residuePalette)
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    AlignmentCanvas(document: document, state: state, residuePalette: residuePalette)
+                    if state.showMinimap {
+                        Divider()
+                        AlignmentMinimapView(document: document, state: state)
+                    }
+                }
+                if state.showInspector {
+                    Divider()
+                    StructuralQualityInspector(document: document, state: state, suggestEdits: suggestAlignmentEdits)
+                }
+            }
             Divider()
             legendAndStatus
         }
-        .frame(minWidth: 900, minHeight: 580)
+        .frame(minWidth: state.showInspector ? 1120 : 900, minHeight: 650)
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(item: $pendingExportFormat) { format in
             ExportOptionsView(
@@ -39,6 +53,18 @@ struct DocumentEditorView: View {
                 }
             )
         }
+        .sheet(isPresented: $showingSuggestedEdits) {
+            SuggestedEditsView(
+                suggestions: suggestedEdits,
+                cancel: { showingSuggestedEdits = false },
+                apply: applySuggestedEdit
+            )
+        }
+        .onChange(of: document.integrityNotice) { notice in
+            guard !notice.isEmpty else { return }
+            state.statusMessage = notice
+            NSSound.beep()
+        }
     }
 
     private var controls: some View {
@@ -49,7 +75,7 @@ struct DocumentEditorView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 360)
-                .help("Switch instantly among stem, compensatory-pair, nucleotide identity, and uncolored views.")
+                .help("Switch among stem, descriptive pair-variation, nucleotide identity, and uncolored views.")
 
                 Menu {
                     ColorPicker("Adenine (A)", selection: residuePalette.binding(for: "A"), supportsOpacity: false)
@@ -92,6 +118,17 @@ struct DocumentEditorView: View {
                 }
                 .help("Export the entire alignment as a vector PDF or SVG using the current colors and display options.")
 
+                Button(action: toggleSequenceEditing) {
+                    Label(
+                        document.sequenceEditingUnlocked ? "Sequence editing" : "Alignment locked",
+                        systemImage: document.sequenceEditingUnlocked ? "lock.open.fill" : "lock.fill"
+                    )
+                }
+                .tint(document.sequenceEditingUnlocked ? .orange : .green)
+                .help(document.sequenceEditingUnlocked
+                    ? "Ungapped residue changes are allowed. Click to restore alignment-only protection."
+                    : "Sequence integrity is protected: gap placement and annotations may change, but ungapped sequences may not.")
+
                 Spacer()
 
                 Menu {
@@ -105,6 +142,9 @@ struct DocumentEditorView: View {
                     Toggle("Show entropy bar plot", isOn: $state.showEntropyPlot)
                     Toggle("Show gap-frequency plot", isOn: $state.showGapPlot)
                     Toggle("Highlight high-entropy/gap-rich columns", isOn: $state.highlightAnalysisColumns)
+                    Divider()
+                    Toggle("Structure and analysis overview", isOn: $state.showMinimap)
+                    Toggle("Structural Quality Inspector", isOn: $state.showInspector)
                     HStack {
                         Text("Entropy ≥ \(state.entropyThreshold, specifier: "%.2f")")
                         Slider(value: $state.entropyThreshold, in: 0...2, step: 0.05)
@@ -157,6 +197,11 @@ struct DocumentEditorView: View {
                     .help("Pair the first and last selected columns in the chosen structure layer.")
                 Button("Unpair", action: clearPair)
                     .help("Remove structural pairs touching the selected columns.")
+                Button(action: suggestAlignmentEdits) {
+                    Label("Suggest fixes", systemImage: "wand.and.stars")
+                }
+                .disabled(state.selectingConsensus || !document.analysis.rows.indices.contains(state.selectedRow) || !document.analysis.rows[state.selectedRow].kind.isSequence)
+                .help("Preview gap-only shifts that improve the selected sequence's current stem.")
             }
 
             HStack(spacing: 10) {
@@ -191,6 +236,12 @@ struct DocumentEditorView: View {
                     Label("Changes", systemImage: "clock.arrow.circlepath")
                 }
 
+                Button {
+                    state.showInspector.toggle()
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.trailing")
+                }
+
                 Spacer()
 
                 TextField("Name, motif, or col:123", text: $searchText)
@@ -214,9 +265,9 @@ struct DocumentEditorView: View {
         HStack(spacing: 12) {
             switch state.colorMode {
             case .covariation:
-                LegendSwatch(color: .green.opacity(0.70), label: "conserved")
+                LegendSwatch(color: .green.opacity(0.70), label: "same pair")
                 LegendSwatch(color: .cyan.opacity(0.75), label: "one-sided")
-                LegendSwatch(color: .blue.opacity(0.85), label: "compensatory")
+                LegendSwatch(color: .blue.opacity(0.85), label: "two-sided change")
                 LegendSwatch(color: .red.opacity(0.85), label: "noncanonical")
                 LegendSwatch(color: .gray.opacity(0.55), label: "gap")
             case .stem:
@@ -232,6 +283,23 @@ struct DocumentEditorView: View {
             }
 
             Spacer()
+            let integrity = document.integrityReport
+            if document.sequenceEditingUnlocked {
+                Label(
+                    integrity.isIntact ? "Sequence editing unlocked" : "\(integrity.changedSequenceCount) sequence(s) changed",
+                    systemImage: "lock.open.fill"
+                )
+                .foregroundStyle(.orange)
+                .help(integrity.violations.map(\.message).joined(separator: "\n"))
+            } else if integrity.isIntact {
+                Label("Integrity verified", systemImage: "checkmark.shield.fill")
+                    .foregroundStyle(.green)
+                    .help(integrity.summary)
+            } else {
+                Label("Integrity check failed", systemImage: "exclamationmark.shield.fill")
+                    .foregroundStyle(.red)
+                    .help(integrity.violations.map(\.message).joined(separator: "\n"))
+            }
             if let issue = document.analysis.validationIssues.first {
                 Label(issue.message, systemImage: issue.severity == .error ? "exclamationmark.triangle.fill" : "exclamationmark.triangle")
                     .foregroundStyle(issue.severity == .error ? .red : .orange)
@@ -276,6 +344,65 @@ struct DocumentEditorView: View {
         ) {
             NSSound.beep()
         }
+    }
+
+    private func toggleSequenceEditing() {
+        if document.sequenceEditingUnlocked {
+            let report = document.integrityReport
+            if !report.isIntact {
+                let alert = NSAlert()
+                alert.messageText = "Sequence data differs from the opened file"
+                alert.informativeText = "Locking now will prevent further residue edits and saving will remain blocked until the changes are reverted or sequence editing is unlocked again."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Lock Anyway")
+                alert.addButton(withTitle: "Keep Unlocked")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            }
+            document.sequenceEditingUnlocked = false
+            state.statusMessage = "Alignment Integrity mode enabled. Ungapped sequence data is protected."
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Unlock biological sequence editing?"
+        alert.informativeText = "Gap shifts and structural annotation do not require this. Unlock only when you intentionally need to add, delete, or replace residues; MATER will continue reporting differences from the opened file."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Unlock Sequence Editing")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        document.sequenceEditingUnlocked = true
+        state.statusMessage = "Sequence editing unlocked. Ungapped residue changes are now allowed."
+    }
+
+    private func suggestAlignmentEdits() {
+        suggestedEdits = StemEditSuggester.suggestions(
+            in: document.file,
+            modelRow: state.selectedRow,
+            column: state.selectedColumn,
+            preferLinked: state.linkPairedStemShifts
+        )
+        showingSuggestedEdits = true
+        state.statusMessage = suggestedEdits.isEmpty
+            ? "No improving adjacent gap shift was found for this sequence and stem."
+            : "Found \(suggestedEdits.count) safe gap-shift suggestion\(suggestedEdits.count == 1 ? "" : "s")."
+    }
+
+    private func applySuggestedEdit(_ suggestion: StemEditSuggestion) {
+        var applied = false
+        document.mutate("Apply Suggested Stem Shift", undoManager: undoManager) { file in
+            guard file.records.indices.contains(suggestion.recordIndex),
+                  file.records[suggestion.recordIndex].aligned == suggestion.expectedAligned else { return }
+            file.records[suggestion.recordIndex].aligned = suggestion.proposedAligned
+            applied = true
+        }
+        guard applied else {
+            state.statusMessage = "The alignment changed and this suggestion is no longer applicable."
+            NSSound.beep()
+            return
+        }
+        state.selectColumns(suggestion.primaryDestinationColumns, row: suggestion.modelRow)
+        state.statusMessage = "Applied a gap-only stem improvement to \(suggestion.sequenceName). Undo is available."
+        showingSuggestedEdits = false
     }
 
     private var selectionInspectorText: String {

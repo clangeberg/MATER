@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.1
+
+- Replace the separate arc diagram with compact, column-aligned stem-arm blocks directly above the entropy, gap, and pairing-violation tracks.
+- Use matching colors to associate the two arms of each stem and dashed block outlines to identify pseudoknots.
+- Calculate pairing-violation heatmap values only among occupied, unambiguous base pairs; gaps and ambiguity codes no longer inflate the red problem track.
+- Report canonical and noncanonical rates among evaluable observations while retaining gap and ambiguity frequencies as separate descriptive metrics.
+- Restrict the inspector's problem filtering and sorting to definite noncanonical pair violations.
+
+## 0.6.0
+
+- Add enabled-by-default Alignment Integrity mode, which permits gap movement and annotation edits while blocking changes to ordered ungapped sequence data.
+- Verify every ungapped sequence against the opened file before saving while integrity is locked, with an explicit protected sequence-editing unlock.
+- Add a Structural Quality Inspector with per-stem canonical, noncanonical, gap, ambiguity, residue-pair, per-pair, and per-sequence problem summaries.
+- Add display-only filtering and sorting for problem sequences, names, structural issue count, and whole-alignment gap fraction.
+- Add gap-only suggested stem improvements with before/after previews, component metrics, sequence-integrity verification, and undoable acceptance.
+- Add structure-linked navigation and an alignment overview for entropy, gaps, and structural quality.
+- Rename the descriptive covariation color mode to **Pair variation** to distinguish observed pair changes from statistical covariation analysis.
+
 ## 0.5.0
 
 - Replace the simple majority row with R2R's standard GSC-weighted sequence consensus rules and exact `A/C/G/U`, `R/Y`, lowercase `n`, and `-` output alphabet.

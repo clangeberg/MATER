@@ -68,6 +68,9 @@ final class AlignmentCanvasView: NSView {
     private var cachedShowEntropyPlot: Bool?
     private var cachedShowGapPlot: Bool?
     private var cachedShowConsensus: Bool?
+    private var cachedSequenceFilterMode: SequenceFilterMode?
+    private var cachedSequenceSortMode: SequenceSortMode?
+    private var cachedCurationStem: Int?
     private var cachedFontSize: Double?
     private let centeredParagraph: NSParagraphStyle = {
         let paragraph = NSMutableParagraphStyle()
@@ -94,12 +97,20 @@ final class AlignmentCanvasView: NSView {
         }
 
         let revisionChanged = cachedRevision != document.revision
+        let curationStem = document.analysis.structurePairs.first {
+            $0.left == state.selectedColumn || $0.right == state.selectedColumn
+        }?.stem
+        let stemAffectsPresentation = state.sequenceFilterMode != .all || state.sequenceSortMode == .mostProblems
+        let rowPresentationChanged = cachedSequenceFilterMode != state.sequenceFilterMode
+            || cachedSequenceSortMode != state.sequenceSortMode
+            || (stemAffectsPresentation && cachedCurationStem != curationStem)
         let alignmentChanged = revisionChanged
             || cachedHidePosteriorProbability != state.hidePosteriorProbability
+            || rowPresentationChanged
         let analysisVisibilityChanged = cachedShowEntropyPlot != state.showEntropyPlot
             || cachedShowGapPlot != state.showGapPlot
         if alignmentChanged {
-            rebuildCache(document: document, hidePosteriorProbability: state.hidePosteriorProbability)
+            rebuildCache(document: document, state: state, curationStem: curationStem)
         }
         if alignmentChanged || fontChanged {
             let widest = displayRows.map { CGFloat($0.row.label.count) * cellWidth }.max() ?? 0
@@ -147,19 +158,43 @@ final class AlignmentCanvasView: NSView {
         }
     }
 
-    private func rebuildCache(document: StockholmDocument, hidePosteriorProbability: Bool) {
+    private func rebuildCache(document: StockholmDocument, state: EditorState, curationStem: Int?) {
         let file = document.file
         alignmentLength = document.analysis.alignmentLength
-        displayRows = document.analysis.rows.enumerated().compactMap { modelIndex, row in
-            guard !hidePosteriorProbability || !row.kind.isPosteriorProbability else { return nil }
+        pairs = document.analysis.structurePairs
+        let quality = curationStem.flatMap { document.structuralQuality(stem: $0) }
+        var presentedRows = document.analysis.rows.enumerated().compactMap { modelIndex, row -> DisplayRow? in
+            guard !state.hidePosteriorProbability || !row.kind.isPosteriorProbability else { return nil }
+            if row.kind.isSequence, !sequencePassesFilter(recordIndex: row.recordIndex, quality: quality, mode: state.sequenceFilterMode) {
+                return nil
+            }
             return DisplayRow(
                 modelIndex: modelIndex,
                 row: row,
                 characters: Array(file.records[row.recordIndex].aligned)
             )
         }
+        if state.sequenceFilterMode != .all {
+            let visibleNames = Set(presentedRows.compactMap { displayed -> String? in
+                if case .sequence(let name) = displayed.row.kind { return name }
+                return nil
+            })
+            presentedRows.removeAll { displayed in
+                if case .residueAnnotation(let sequence, _) = displayed.row.kind {
+                    return !visibleNames.contains(sequence)
+                }
+                return false
+            }
+        }
+        if state.sequenceSortMode != .fileOrder {
+            let sequenceRows = presentedRows.filter { $0.row.kind.isSequence }.sorted { lhs, rhs in
+                sequencePrecedes(lhs, rhs, mode: state.sequenceSortMode, quality: quality, file: file)
+            }
+            let annotationRows = presentedRows.filter { !$0.row.kind.isSequence }
+            presentedRows = sequenceRows + annotationRows
+        }
+        displayRows = presentedRows
         displayIndexByModelRow = Dictionary(uniqueKeysWithValues: displayRows.enumerated().map { ($0.element.modelIndex, $0.offset) })
-        pairs = StructureParser.pairs(in: file)
         partnersByColumn = [:]
         stemByColumn = [:]
         stemPairByColumn = [:]
@@ -195,7 +230,47 @@ final class AlignmentCanvasView: NSView {
         gapFrequencyByColumn = []
         changedColumnsByRecordIndex = document.changedColumnsByRecordIndex
         cachedRevision = document.revision
-        cachedHidePosteriorProbability = hidePosteriorProbability
+        cachedHidePosteriorProbability = state.hidePosteriorProbability
+        cachedSequenceFilterMode = state.sequenceFilterMode
+        cachedSequenceSortMode = state.sequenceSortMode
+        cachedCurationStem = curationStem
+    }
+
+    private func sequencePassesFilter(
+        recordIndex: Int,
+        quality: StemQuality?,
+        mode: SequenceFilterMode
+    ) -> Bool {
+        guard mode != .all, let status = quality?.statusByRecordIndex[recordIndex] else { return true }
+        switch mode {
+        case .all: return true
+        case .structuralProblems: return status.problemCount > 0
+        case .noncanonical: return status.noncanonical > 0
+        case .gaps: return status.gaps > 0
+        }
+    }
+
+    private func sequencePrecedes(
+        _ lhs: DisplayRow,
+        _ rhs: DisplayRow,
+        mode: SequenceSortMode,
+        quality: StemQuality?,
+        file: StockholmFile
+    ) -> Bool {
+        switch mode {
+        case .fileOrder:
+            return lhs.modelIndex < rhs.modelIndex
+        case .name:
+            return lhs.row.label.localizedStandardCompare(rhs.row.label) == .orderedAscending
+        case .mostProblems:
+            let left = quality?.statusByRecordIndex[lhs.row.recordIndex]?.problemCount ?? 0
+            let right = quality?.statusByRecordIndex[rhs.row.recordIndex]?.problemCount ?? 0
+            return left == right ? lhs.modelIndex < rhs.modelIndex : left > right
+        case .gapFraction:
+            let left = StructuralQualityAnalyzer.wholeAlignmentGapFraction(recordIndex: lhs.row.recordIndex, in: file)
+            let right = StructuralQualityAnalyzer.wholeAlignmentGapFraction(recordIndex: rhs.row.recordIndex, in: file)
+            return left == right ? lhs.modelIndex < rhs.modelIndex : left > right
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -794,6 +869,11 @@ final class AlignmentCanvasView: NSView {
         let targetRows = modelRows.count > 1 ? sequenceRows : modelRows
         guard !targetRows.isEmpty else { NSSound.beep(); return }
         let isSequenceEdit = targetRows.allSatisfy { document.analysis.rows[$0].kind.isSequence }
+        if isSequenceEdit, !document.sequenceEditingUnlocked {
+            state.statusMessage = "Alignment Integrity mode blocked residue replacement. Gap shifts remain available."
+            NSSound.beep()
+            return
+        }
         let character: Character
         if isSequenceEdit {
             let upper = Character(String(input).uppercased())
@@ -825,6 +905,17 @@ final class AlignmentCanvasView: NSView {
         }
         let rows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
         let columns = state.selectedColumnSet
+        let touchesSequenceResidue = rows.contains { row in
+            guard document.analysis.rows[row].kind.isSequence else { return false }
+            return columns.contains { column in
+                document.file.character(row: row, column: column).map { !StockholmFile.isGap($0) && $0 != "_" } ?? false
+            }
+        }
+        if touchesSequenceResidue, !document.sequenceEditingUnlocked {
+            state.statusMessage = "Alignment Integrity mode blocked residue deletion. Move gaps instead, or explicitly unlock sequence editing."
+            NSSound.beep()
+            return
+        }
         document.mutate("Clear Cells", undoManager: window?.undoManager) { file in
             for row in rows {
                 let fill: Character = document.analysis.rows[row].kind.isSequence ? "-" : "."
@@ -880,6 +971,7 @@ final class AlignmentCanvasView: NSView {
         let targetRows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
         let columns = state.orderedSelectedColumns
         let startColumn = columns.first ?? state.selectedColumn
+        let priorRevision = document.revision
         document.mutate("Paste", undoManager: window?.undoManager) { file in
             for (offset, line) in lines.enumerated() {
                 let targetRow = lines.count == 1 ? state.selectedRow : (targetRows.indices.contains(offset) ? targetRows[offset] : -1)
@@ -891,6 +983,7 @@ final class AlignmentCanvasView: NSView {
                 }
             }
         }
+        guard document.revision != priorRevision else { return }
         let final = min(document.file.alignmentLength - 1, startColumn + (lines.map(\.count).max() ?? 1) - 1)
         state.anchorColumn = startColumn
         state.selectedColumn = final

@@ -462,9 +462,9 @@ private struct AlignmentExportSnapshot {
             return [("canonical stem", AlignmentPalette.stemColor(for: 0)), ("pair violation", .white)]
         case .covariation:
             return [
-                ("conserved", AlignmentPalette.covariation[.conserved]!),
-                ("one-sided", AlignmentPalette.covariation[.consistent]!),
-                ("compensatory", AlignmentPalette.covariation[.compensatory]!),
+                ("same pair", AlignmentPalette.covariation[.conserved]!),
+                ("one-sided change", AlignmentPalette.covariation[.consistent]!),
+                ("two-sided change", AlignmentPalette.covariation[.compensatory]!),
                 ("noncanonical", AlignmentPalette.covariation[.noncanonical]!),
                 ("gap", AlignmentPalette.covariation[.gap]!)
             ]

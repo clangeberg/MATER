@@ -16,9 +16,43 @@ enum AlignmentColorMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .stem: return "Stem"
-        case .covariation: return "Covariation"
+        case .covariation: return "Pair variation"
         case .residue: return "Residue"
         case .none: return "None"
+        }
+    }
+}
+
+enum SequenceFilterMode: String, CaseIterable, Identifiable {
+    case all
+    case structuralProblems
+    case noncanonical
+    case gaps
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return "All sequences"
+        case .structuralProblems: return "Pair violations"
+        case .noncanonical: return "Noncanonical only"
+        case .gaps: return "Gaps in stem"
+        }
+    }
+}
+
+enum SequenceSortMode: String, CaseIterable, Identifiable {
+    case fileOrder
+    case name
+    case mostProblems
+    case gapFraction
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .fileOrder: return "File order"
+        case .name: return "Sequence name"
+        case .mostProblems: return "Most pair violations"
+        case .gapFraction: return "Highest gap fraction"
         }
     }
 }
@@ -45,6 +79,10 @@ final class EditorState: ObservableObject {
     @Published var selectingConsensus = false
     @Published var referenceSequenceName: String?
     @Published var showChanges = false
+    @Published var showInspector = true
+    @Published var showMinimap = true
+    @Published var sequenceFilterMode: SequenceFilterMode = .all
+    @Published var sequenceSortMode: SequenceSortMode = .fileOrder
     @Published var linkPairedStemShifts = true
     @Published var stemShiftContinuation: StemShiftContinuation?
     @Published var statusMessage = "Ready"

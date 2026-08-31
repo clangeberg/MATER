@@ -14,6 +14,8 @@ struct StockholmDocumentAnalysis {
     let validationIssues: [ValidationIssue]
     let entropyByColumn: [Double]
     let gapFrequencyByColumn: [Double]
+    let structurePairs: [BasePair]
+    let structuralProblemFractions: [Double]
 
     init(file: StockholmFile) {
         rows = file.rows
@@ -22,6 +24,8 @@ struct StockholmDocumentAnalysis {
         validationIssues = file.validationIssues
         entropyByColumn = EntropyAnalyzer.columnEntropies(in: file)
         gapFrequencyByColumn = GapAnalyzer.columnGapFrequencies(in: file)
+        structurePairs = StructureParser.pairs(in: file)
+        structuralProblemFractions = StructuralQualityAnalyzer.problemFractionsByColumn(in: file, pairs: structurePairs)
     }
 }
 
@@ -32,10 +36,13 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
     static var writableContentTypes: [UTType] { [.stockholmAlignment] }
 
     @Published private(set) var file: StockholmFile
+    @Published var sequenceEditingUnlocked = false
+    @Published private(set) var integrityNotice = ""
     private(set) var analysis: StockholmDocumentAnalysis
     private(set) var revision: UInt64 = 0
     private(set) var baselineFile: StockholmFile
     private let recoveryIdentifier: String
+    private var stemQualityCache: [Int: StemQuality] = [:]
 
     init() {
         let parsed = StockholmParser.parse(Self.example)
@@ -59,17 +66,37 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
         recoveryIdentifier = Self.recoveryIdentifier(for: parsed.rendered)
     }
 
-    func snapshot(contentType: UTType) throws -> String { file.rendered }
+    func snapshot(contentType: UTType) throws -> String {
+        let report = integrityReport
+        if !sequenceEditingUnlocked, !report.isIntact {
+            throw AlignmentIntegrityError(report: report)
+        }
+        return file.rendered
+    }
 
     func fileWrapper(snapshot: String, configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: Data(snapshot.utf8))
     }
 
-    func mutate(_ actionName: String, undoManager: UndoManager?, _ mutation: (inout StockholmFile) -> Void) {
+    func mutate(
+        _ actionName: String,
+        undoManager: UndoManager?,
+        allowIntegrityRestoration: Bool = false,
+        _ mutation: (inout StockholmFile) -> Void
+    ) {
         let before = file
         var after = before
         mutation(&after)
         guard after != before else { return }
+        let restoresIntegrity = allowIntegrityRestoration
+            && SequenceIntegrityAnalyzer.differenceScore(current: after, baseline: baselineFile)
+                < SequenceIntegrityAnalyzer.differenceScore(current: before, baseline: baselineFile)
+        if !sequenceEditingUnlocked,
+           !SequenceIntegrityAnalyzer.preservesSequences(from: before, to: after),
+           !restoresIntegrity {
+            integrityNotice = "Blocked \(actionName.lowercased()): unlock sequence editing to change ungapped residues."
+            return
+        }
         RecoveryStore.schedule(before, identifier: recoveryIdentifier)
         apply(after, replacing: before, actionName: actionName, undoManager: undoManager)
     }
@@ -82,11 +109,31 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
     @discardableResult
     func restoreLatestRecovery(undoManager: UndoManager?) -> Bool {
         guard let recovery = RecoveryStore.latest(identifier: recoveryIdentifier), recovery != file else { return false }
+        if !sequenceEditingUnlocked, !SequenceIntegrityAnalyzer.preservesSequences(from: file, to: recovery) {
+            integrityNotice = "Recovery would change ungapped sequence data; unlock sequence editing first."
+            return false
+        }
         apply(recovery, replacing: file, actionName: "Restore Recovery Snapshot", undoManager: undoManager)
         return true
     }
 
     var recoverySnapshotCount: Int { RecoveryStore.snapshotCount(identifier: recoveryIdentifier) }
+
+    var integrityReport: SequenceIntegrityReport {
+        SequenceIntegrityAnalyzer.report(current: file, baseline: baselineFile)
+    }
+
+    func structuralQuality(containing column: Int) -> StemQuality? {
+        guard let stem = analysis.structurePairs.first(where: { $0.left == column || $0.right == column })?.stem else { return nil }
+        return structuralQuality(stem: stem)
+    }
+
+    func structuralQuality(stem: Int) -> StemQuality? {
+        if let cached = stemQualityCache[stem] { return cached }
+        guard let quality = StructuralQualityAnalyzer.quality(stem: stem, pairs: analysis.structurePairs, in: file) else { return nil }
+        stemQualityCache[stem] = quality
+        return quality
+    }
 
     var changeSummary: AlignmentChangeSummary {
         AlignmentChangeSummary(current: file, baseline: baselineFile)
@@ -117,7 +164,11 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
         let currentRows = file.rows
         let baselineRows = Dictionary(baselineFile.rows.map { ($0.label, $0.recordIndex) }, uniquingKeysWith: { first, _ in first })
         var restored = 0
-        mutate("Revert Selected Region", undoManager: undoManager) { replacement in
+        mutate(
+            "Revert Selected Region",
+            undoManager: undoManager,
+            allowIntegrityRestoration: true
+        ) { replacement in
             for modelRow in selectedRows where currentRows.indices.contains(modelRow) {
                 let currentRow = currentRows[modelRow]
                 guard let baselineIndex = baselineRows[currentRow.label] else { continue }
@@ -137,7 +188,11 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
         let baselineRows = Dictionary(baselineFile.rows.map { ($0.label, $0.recordIndex) }, uniquingKeysWith: { first, _ in first })
         let currentLength = file.alignmentLength
         var restored = 0
-        mutate("Revert Selected Rows", undoManager: undoManager) { replacement in
+        mutate(
+            "Revert Selected Rows",
+            undoManager: undoManager,
+            allowIntegrityRestoration: true
+        ) { replacement in
             for modelRow in selectedRows where currentRows.indices.contains(modelRow) {
                 let currentRow = currentRows[modelRow]
                 guard let baselineIndex = baselineRows[currentRow.label] else { continue }
@@ -156,6 +211,7 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
         }
         undoManager?.setActionName(actionName)
         analysis = StockholmDocumentAnalysis(file: replacement)
+        stemQualityCache = [:]
         revision &+= 1
         file = replacement
     }
@@ -173,6 +229,16 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
     #=GC SS_cons  <<......>>..
     //
     """
+}
+
+struct AlignmentIntegrityError: LocalizedError {
+    let report: SequenceIntegrityReport
+
+    var errorDescription: String? { "MATER blocked saving because sequence integrity is locked." }
+    var recoverySuggestion: String? {
+        let details = report.violations.prefix(5).map(\.message).joined(separator: " ")
+        return "Revert the sequence changes, or explicitly unlock sequence editing before saving. \(details)"
+    }
 }
 
 struct AlignmentChangeSummary {
