@@ -293,6 +293,7 @@ enum RScapeRunner {
         let processOutput = try launch(
             executableURL: executableURL,
             arguments: arguments,
+            workingDirectoryURL: temporaryDirectory,
             processHandle: processHandle
         )
         let combinedOutput = processOutput.stdout + (processOutput.stderr.isEmpty ? "" : "\n--- stderr ---\n\(processOutput.stderr)")
@@ -323,7 +324,10 @@ enum RScapeRunner {
             if processOutput.status != 0 {
                 throw RScapeRunError.analysisFailed(
                     status: processOutput.status,
-                    details: conciseDetails(processOutput.stderr.isEmpty ? processOutput.stdout : processOutput.stderr)
+                    details: failureDetails(
+                        processOutput: processOutput,
+                        logURL: logURL
+                    )
                 )
             }
             throw RScapeRunError.missingCovarianceTable
@@ -361,6 +365,7 @@ enum RScapeRunner {
     private static func launch(
         executableURL: URL,
         arguments: [String],
+        workingDirectoryURL: URL,
         processHandle: RScapeProcessHandle
     ) throws -> ProcessOutput {
         let process = Process()
@@ -387,6 +392,13 @@ enum RScapeRunner {
 
         process.executableURL = executableURL
         process.arguments = arguments
+        // R-scape creates its temporary FastTree input and tree in the
+        // subprocess's current directory rather than in --outdir. Finder-
+        // launched applications can inherit an unwritable current directory
+        // (commonly `/`), which R-scape reports only as "Failed to create
+        // external tree". Keep every internal temporary file in MATER's
+        // private writable run directory.
+        process.currentDirectoryURL = workingDirectoryURL
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         var environment = ProcessInfo.processInfo.environment
@@ -437,6 +449,14 @@ enum RScapeRunner {
     private static func conciseDetails(_ text: String) -> String {
         let lines = text.split(whereSeparator: \.isNewline).suffix(8).map(String.init)
         return lines.joined(separator: " ").prefix(900).description
+    }
+
+    private static func failureDetails(processOutput: ProcessOutput, logURL: URL) -> String {
+        let combined = processOutput.stdout
+            + (processOutput.stderr.isEmpty ? "" : "\n\(processOutput.stderr)")
+        let diagnostic = conciseDetails(combined)
+        let logMessage = "Full diagnostics were saved to \(logURL.path)."
+        return diagnostic.isEmpty ? logMessage : "\(diagnostic) \(logMessage)"
     }
 
     private static func warningMessage(from stderr: String) -> String? {

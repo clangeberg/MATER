@@ -39,6 +39,11 @@ struct StemArmShiftPlan: Equatable, Sendable {
 }
 
 enum StructureParser {
+    private struct PairingClassKey: Hashable {
+        let recordIndex: Int
+        let opener: Character
+    }
+
     /// Keep short bulges/internal loops within one visual and editing stem.
     /// The value is the combined number of skipped columns across both arms.
     private static let maximumStemBulgeColumns = 2
@@ -108,56 +113,80 @@ enum StructureParser {
         return (leftStep - 1) + (rightStep - 1) <= maximumStemBulgeColumns
     }
 
-    /// A major element is a connected component of overlapping stem spans.
-    /// Containment joins branched/nested helices and interval crossings join
-    /// pseudoknot networks. Disjoint hairpins remain separate. This supplies a
-    /// useful topology-derived domain coloring without changing the finer stem
-    /// identities used by editing and quality calculations.
+    /// A major element follows a continuous helix through arbitrarily large
+    /// bulges and internal loops. A chain of nested pairs remains one element
+    /// while every pair has at most one direct child. Separate roots and each
+    /// arm leaving a true branch junction begin new elements. WUSS opener
+    /// classes and SS_cons rows are independent, so pseudoknot classes retain
+    /// distinct, faithful identities instead of being merged merely because
+    /// their spans cross.
     private static func assigningMajorElements(to pairs: [BasePair]) -> [BasePair] {
-        let pairsByStem = Dictionary(grouping: pairs, by: \.stem)
-        let stems = pairsByStem.keys.sorted()
-        guard !stems.isEmpty else { return pairs }
-        let spans: [Int: ClosedRange<Int>] = Dictionary(uniqueKeysWithValues: stems.compactMap { stem in
-            guard let stemPairs = pairsByStem[stem],
-                  let lower = stemPairs.map(\.left).min(),
-                  let upper = stemPairs.map(\.right).max() else { return nil }
-            return (stem, lower...upper)
-        })
-        var parent = Dictionary(uniqueKeysWithValues: stems.map { ($0, $0) })
-
-        func root(of stem: Int) -> Int {
-            var current = stem
-            while let next = parent[current], next != current { current = next }
-            return current
+        let grouped = Dictionary(grouping: pairs) {
+            PairingClassKey(recordIndex: $0.recordIndex, opener: $0.open)
+        }
+        let orderedGroups = grouped.values.sorted { lhs, rhs in
+            guard let firstLHS = lhs.min(by: pairOrder),
+                  let firstRHS = rhs.min(by: pairOrder) else { return lhs.count < rhs.count }
+            if firstLHS.recordIndex != firstRHS.recordIndex {
+                return firstLHS.recordIndex < firstRHS.recordIndex
+            }
+            if firstLHS.left != firstRHS.left { return firstLHS.left < firstRHS.left }
+            if firstLHS.right != firstRHS.right { return firstLHS.right > firstRHS.right }
+            return String(firstLHS.open) < String(firstRHS.open)
         }
 
-        for firstIndex in stems.indices {
-            for secondIndex in stems.indices where secondIndex > firstIndex {
-                let first = stems[firstIndex]
-                let second = stems[secondIndex]
-                guard let firstSpan = spans[first], let secondSpan = spans[second],
-                      firstSpan.overlaps(secondSpan) else { continue }
-                let firstRoot = root(of: first)
-                let secondRoot = root(of: second)
-                if firstRoot != secondRoot { parent[secondRoot] = firstRoot }
+        var elementByPairID: [String: Int] = [:]
+        var nextElement = 0
+        for group in orderedGroups {
+            let ordered = group.sorted(by: pairOrder)
+            var children = Array(repeating: [Int](), count: ordered.count)
+            var roots: [Int] = []
+            var containmentStack: [Int] = []
+
+            for index in ordered.indices {
+                let pair = ordered[index]
+                while let candidate = containmentStack.last {
+                    let outer = ordered[candidate]
+                    if outer.left < pair.left && pair.right < outer.right { break }
+                    containmentStack.removeLast()
+                }
+                if let parent = containmentStack.last {
+                    children[parent].append(index)
+                } else {
+                    roots.append(index)
+                }
+                containmentStack.append(index)
+            }
+
+            for root in roots {
+                let rootElement = nextElement
+                nextElement += 1
+                var pending: [(pairIndex: Int, element: Int)] = [(root, rootElement)]
+                while let current = pending.popLast() {
+                    elementByPairID[ordered[current.pairIndex].id] = current.element
+                    let directChildren = children[current.pairIndex]
+                    if directChildren.count == 1, let child = directChildren.first {
+                        pending.append((child, current.element))
+                    } else if !directChildren.isEmpty {
+                        let childAssignments = directChildren.map { child -> (pairIndex: Int, element: Int) in
+                            defer { nextElement += 1 }
+                            return (child, nextElement)
+                        }
+                        pending.append(contentsOf: childAssignments.reversed())
+                    }
+                }
             }
         }
 
-        let components = Dictionary(grouping: stems, by: { root(of: $0) }).values.sorted { lhs, rhs in
-            let lhsStart = lhs.compactMap { spans[$0]?.lowerBound }.min() ?? Int.max
-            let rhsStart = rhs.compactMap { spans[$0]?.lowerBound }.min() ?? Int.max
-            if lhsStart != rhsStart { return lhsStart < rhsStart }
-            return (lhs.min() ?? Int.max) < (rhs.min() ?? Int.max)
-        }
-        var elementByStem: [Int: Int] = [:]
-        for (element, component) in components.enumerated() {
-            for stem in component { elementByStem[stem] = element }
-        }
         return pairs.map { pair in
             var result = pair
-            result.element = elementByStem[pair.stem] ?? pair.stem
+            result.element = elementByPairID[pair.id] ?? pair.stem
             return result
         }
+    }
+
+    private static func pairOrder(_ lhs: BasePair, _ rhs: BasePair) -> Bool {
+        lhs.left == rhs.left ? lhs.right > rhs.right : lhs.left < rhs.left
     }
 
     static func pair(at column: Int, in file: StockholmFile) -> BasePair? {

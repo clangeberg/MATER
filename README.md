@@ -23,7 +23,7 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Preservation of Stockholm metadata and comments; single-block files round-trip exactly, while wrapped/interleaved aligned rows are safely normalized into one complete row on save
 - Editable sequence, `#=GC`, and `#=GR` alignment rows
 - Live insertion-tolerant stem coloring across every `SS_cons*` layer, with one- and two-column bulges retained in the same stem and noncanonical pairs left uncolored
-- Optional **Element** coloring that gives nested and crossing stems in one topology-derived major structural element the same color
+- Optional **Element** coloring that follows a continuous helix through arbitrarily large bulges and internal loops, splitting only at true branch junctions, disjoint helices, or different WUSS pairing classes
 - WUSS/Rfam pairs: `<>`, `()`, `[]`, `{}`, and `A/a` through `Z/z`
 - Descriptive pair-variation coloring for same-pair, one-sided, two-sided, invalid, and gapped observations
 - Residue coloring
@@ -88,12 +88,12 @@ Audit the included Rfam examples with:
 - Click or drag to select cells; Shift-click or Shift–arrows extends a rectangular selection.
 - Double-click a paired cell to select both partners; triple-click it to select its entire stem.
 - Click or drag in `SS_cons*`, `RF`, `cons`, or the calculated R2R consensus row to highlight complete alignment columns.
-- Choose **Stem** colors for individual insertion-tolerant stacks or **Element** colors to group nested/overlapping and crossing stems into larger structural elements.
+- Choose **Stem** colors for fine insertion-tolerant stacks or **Element** colors for continuous high-level helices across bulges and internal loops; true branches and separate pairing classes receive distinct colors.
 - Keep **Alignment locked** for normal curation. Gap movement and annotations remain editable, while residue replacement, insertion, deletion, and sequence reordering are protected.
 - Select a stem to populate the **Quality Inspector**; click a reported problem to jump to that sequence and pair.
 - Use **Suggest fixes** to preview width-preserving gap arrangements across both helix arms and their ±3-column unpaired neighborhoods without changing ungapped residues.
 - Use **Auto-refine copy** to scan every sequence and annotated stem, write a uniquely named `*-MATER-refined.sto`, and open it without approving individual edits. Automatic mode never decreases total canonical support or increases definite noncanonical observations; gaps are not treated as failures.
-- Use **Run R-scape** to evaluate the current `SS_cons*` structure with an installed R-scape. Finder apps may not inherit Terminal's PATH; **Locate R-scape…** accepts the executable, `bin` folder, or installation folder and prefers the installed copy beside R2R.
+- Use **Run R-scape** to evaluate the current `SS_cons*` structure with an installed R-scape. Finder apps may not inherit Terminal's PATH; **Locate R-scape…** accepts the executable, `bin` folder, or installation folder and prefers the installed copy beside R2R. MATER also supplies a private writable working directory for R-scape's internal FastTree files.
 - Click or drag in the combined structure and analysis overview to navigate long alignments; matching block colors identify paired stem arms.
 - Type an IUPAC nucleotide to replace selected sequence cells.
 - Delete replaces sequence cells with `-` and annotation cells with `.`.

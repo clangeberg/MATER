@@ -338,7 +338,7 @@ Existing `A/a` through `Z/z` classes are parsed even though the GUI creates only
 WUSS/dot-bracket symbols encode base-pair relationships and pairing classes; they do not encode arbitrary biological domain names or requested colors. Infernal builds covariance-model pair and bifurcation states from the consensus pairing topology, while MATER derives two useful display levels from that same kind of topology:
 
 - A **stem** is an insertion-tolerant stack within one `SS_cons*` row and opener class. A combined bulge of zero, one, or two skipped arm columns remains in the stack. A larger internal loop, a branch, a disjoint helix, a different opener class, or a different structure row begins another stem.
-- A **major element** is a connected component of overlapping stem spans. Containment joins nested/branched stems; interval crossings join interacting pseudoknot stems. Disjoint hairpins remain separate elements.
+- A **major element** is one continuous high-level helix. A singly nested chain of pairs remains one element no matter how many unpaired columns occur on either arm. A true junction with two or more directly nested child helices ends that chain: the enclosing helix and each child helix receive separate elements. Disjoint roots, different `SS_cons*` rows, and different WUSS opener classes are also separate.
 
 For example, these annotations both resolve to three stems—one outer stem and two internal stems—even though only the first uses different bracket classes:
 
@@ -347,7 +347,15 @@ For example, these annotations both resolve to three stems—one outer stem and 
 ((((((((((.....)))))...(((((.....))))))))))
 ```
 
-The large topological discontinuities prevent the ordinary-parentheses form from collapsing into one stack. In **Stem** mode the three stacks have different colors. In **Element** mode their overlapping/nested spans give them one color.
+The large topological discontinuities prevent the ordinary-parentheses form from collapsing into one fine stem. In **Stem** mode the three stacks have different colors. In **Element** mode these examples also have three colors: the first has three explicit WUSS pairing classes, while the second has an enclosing helix and two child helices leaving a true branch junction.
+
+A continuous nested chain behaves differently even when its arms contain large interruptions:
+
+```text
+((..(.(....(((.....)).)))....)..)
+```
+
+Every pair has only one directly nested child, so the whole chain is one color in **Element** mode. By contrast, `((...))((..))` has two disjoint roots and therefore two elements, while `((((((...)))(((...))))))` has an outer helix plus two child branches and therefore three.
 
 A small insertion behaves differently:
 
@@ -355,7 +363,7 @@ A small insertion behaves differently:
 (((.....)).)
 ```
 
-The outer pair skips one extra column on its right arm, but all three pairs remain one stem. Lettered K-, L-, M-, and more complex pseudoknot classes are parsed independently with their own stacks; crossing stem spans join only in **Element** mode. This retains individual pseudoknot stems in **Stem** mode while allowing an entire connected knot network to share a major-element color.
+The outer pair skips one extra column on its right arm, but all three pairs remain one fine stem. Lettered K-, L-, M-, and more complex pseudoknot classes are parsed independently with their own stacks. Each pseudoknot class can remain one high-level Element across bulges and internal loops, but crossing classes are not merged merely because their spans overlap. This preserves distinct pseudoknot stems while treating interruptions within one matched opener/closer class consistently.
 
 Because named domains such as “HCV IRES domain II” are not explicitly labeled by dot bracket alone, Element mode is a reproducible topology-based approximation. If a desired biological domain boundary differs from the topology, it cannot be inferred unambiguously from `SS_cons`; an explicit named-domain annotation would be required.
 
@@ -371,7 +379,7 @@ This makes violations conspicuous without assigning them a misleading stem color
 
 ### 9.2 Element
 
-Element mode uses the same canonical-pair rule as Stem mode but colors every stem in one topology-derived major element identically. Nested branches and crossing pseudoknot stems are joined by overlapping spans; disjoint structural elements are not. This is useful for scanning domain-scale architecture while retaining Stem mode for fine stack boundaries.
+Element mode uses the same canonical-pair rule as Stem mode but colors a continuous high-level helix identically across arbitrarily large bulges and internal loops. It follows the direct pair-containment tree: a single nested child continues the current element, while two or more direct children create a true branch and each child begins a new element. Disjoint helices, different structure rows, and different WUSS opener classes—including crossing pseudoknot classes—remain distinct. Switch back to Stem mode for the finer two-skipped-column stack boundary.
 
 ### 9.3 Pair variation
 
@@ -684,7 +692,7 @@ The current in-memory alignment—not merely the last saved version—is written
 R-scape -s --onemsa --outdir TEMPORARY_DIRECTORY --outname NAME INPUT.sto
 ```
 
-`-s` requests R-scape's two-set evaluation of the given structure. `--onemsa` limits the invocation to the one alignment MATER submitted. All current WUSS structure layers, including pseudoknots in `SS_cons*`, remain in the submitted Stockholm snapshot. MATER prepends the selected executable's directory to `PATH` so companion programs from the same installation can be found.
+`-s` requests R-scape's two-set evaluation of the given structure. `--onemsa` limits the invocation to the one alignment MATER submitted. All current WUSS structure layers, including pseudoknots in `SS_cons*`, remain in the submitted Stockholm snapshot. MATER prepends the selected executable's directory to `PATH` so companion programs from the same installation can be found. It also makes the private temporary output folder R-scape's current working directory, because R-scape writes its internal FastTree input and tree there independently of `--outdir`. This prevents Finder launches from failing with `Failed to create external tree` merely because the inherited working directory is not writable.
 
 ### 14.3 Results panel and retained files
 
@@ -963,7 +971,7 @@ Version 0.8 joins repeated interleaved segments by sequence name, `#=GC` tag, or
 
 ### Why do two parts of a helix have different Stem colors?
 
-Stem mode keeps immediately nested pairs together across at most two total bulged columns. A larger internal loop, branch, disjoint helix, different WUSS class, or different `SS_cons*` row defines another stem. Choose **Element** to give nested/overlapping or crossing stems the same topology-derived major-element color. Dot bracket does not encode arbitrary named domains, so an exact laboratory-specific domain boundary cannot always be inferred.
+Stem mode keeps immediately nested pairs together across at most two total bulged columns. A larger internal loop, branch, disjoint helix, different WUSS class, or different `SS_cons*` row defines another fine stem. Choose **Element** to keep a singly nested helix chain one color across any number of unpaired columns. Element mode still splits at true branches, disjoint roots, different structure rows, and different WUSS pairing classes. Dot bracket does not encode arbitrary named domains, so an exact laboratory-specific domain boundary cannot always be inferred.
 
 ### Does MATER alter metadata it does not display?
 
@@ -991,7 +999,7 @@ Version 0.8.0 alpha 1 intentionally has a bounded scope:
 - No automatic sequence addition, removal, renaming, or phylogenetic tree editor
 - Suggested and automatic edits use bounded helix-plus-three-column gap rearrangements and iterative local moves rather than a global multiple-sequence realignment algorithm
 - GUI pair creation provides four pseudoknot layers beyond primary, although more existing WUSS letter classes are parsed
-- Major elements are inferred from overlapping/crossing topology; arbitrary named biological-domain boundaries are not encoded by dot bracket and cannot be assigned explicitly in this release
+- Major elements are inferred from continuous pair-containment chains and WUSS classes; arbitrary named biological-domain boundaries are not encoded by dot bracket and cannot be assigned explicitly in this release
 - Compact structural-problem heatmap is intentionally editor-only and is not included in alignment PDF/SVG export
 - No built-in automatic updater or crash-reporting service
 
@@ -1058,7 +1066,7 @@ dist/MATER.app
 
 **Entropy** — Unweighted Shannon entropy of canonical nucleotide identities at a column, excluding gaps and ambiguity.
 
-**Element** — A topology-derived connected component of overlapping, nested, or crossing stems. It is not an explicit biological-domain label.
+**Element** — A topology-derived continuous helix chain: single-child nesting continues through any bulge/internal loop, while branches, disjoint roots, structure rows, and WUSS classes split elements. It is not an explicit biological-domain label.
 
 **Evaluable pair** — Both partners are occupied and unambiguous A/C/G/U.
 

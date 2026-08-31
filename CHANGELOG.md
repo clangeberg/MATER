@@ -10,8 +10,9 @@
 - Add a closable in-window PDFKit panel with a zoomable R2R drawing, run summary, power guidance, cancellation, and direct access to result files.
 - Normalize interleaved/wrapped Stockholm blocks into complete logical sequence, `#=GC`, and `#=GR` rows on open, preserving raw metadata/comments and preventing duplicate-row crashes.
 - Keep immediately nested pairs in one stem across up to two total bulged columns, while retaining large internal loops, branches, disjoint helices, and different WUSS classes as distinct stems.
-- Add **Element** coloring that derives major structural elements as connected components of nested/overlapping and crossing stem spans, including multi-stem pseudoknot networks.
+- Add toggleable **Element** coloring for high-level continuous helices: arbitrarily large bulges and internal loops retain one color, while true branch junctions, disjoint roots, different structure rows, and different WUSS pairing classes begin new elements.
 - Resolve remembered `src/R-scape` selections and selected `bin`/installation folders to the installed `bin/R-scape` beside R2R; explain Finder-versus-Terminal PATH behavior.
+- Run R-scape inside MATER's private writable temporary directory so its internal FastTree alignment/tree files work when MATER is launched from Finder; retain combined standard-output/error diagnostics on failure.
 - Keep the compact structural-problem heatmap editor-only and intentionally exclude it from alignment PDF/SVG export.
 
 ## 0.7.0-alpha.1 — 2026-08-30

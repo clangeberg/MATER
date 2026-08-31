@@ -160,16 +160,25 @@ struct CoreTestMain {
         expect(bulgedPairs.count == 3, "bulged stem pair count")
         expect(Set(bulgedPairs.map(\.stem)).count == 1, "a one-column arm bulge split one helix into multiple stems")
 
+        let continuous = StructureParser.pairs(in: file(with: "((..(.(....(((.....)).)))....)..)"))
+        expect(Set(continuous.map(\.element)).count == 1, "a continuous nested helix was split across large internal loops")
+
+        let disjoint = StructureParser.pairs(in: file(with: "((...))((..))"))
+        expect(Set(disjoint.map(\.element)).count == 2, "two disjoint helices were merged into one element")
+
+        let branched = StructureParser.pairs(in: file(with: "((((((...)))(((...))))))"))
+        expect(Set(branched.map(\.element)).count == 3, "an outer helix with two child branches did not produce three elements")
+
         let explicit = StructureParser.pairs(in: file(with: "((((([[[[[.....]]]]]...{{{{{.....}}}}})))))"))
         let ordinary = StructureParser.pairs(in: file(with: "((((((((((.....)))))...(((((.....))))))))))"))
         expect(Set(explicit.map(\.stem)).count == 3, "explicit nested WUSS classes did not produce three stacks")
         expect(Set(ordinary.map(\.stem)).count == 3, "ordinary dot-bracket topology did not preserve three stacks")
-        expect(Set(explicit.map(\.element)).count == 1, "nested explicit stacks were not joined as one major element")
-        expect(Set(ordinary.map(\.element)).count == 1, "nested ordinary stacks were not joined as one major element")
+        expect(Set(explicit.map(\.element)).count == 3, "explicit WUSS classes did not retain three high-level elements")
+        expect(Set(ordinary.map(\.element)).count == 3, "ordinary dot-bracket branching did not produce three high-level elements")
 
         let knotPairs = StructureParser.pairs(in: file(with: "AA..BB..CC..aa..bb..cc"))
         expect(Set(knotPairs.map(\.stem)).count == 3, "crossing K/L/M-style classes were not retained as separate stems")
-        expect(Set(knotPairs.map(\.element)).count == 1, "crossing pseudoknot stems were not joined into one major element")
+        expect(Set(knotPairs.map(\.element)).count == 3, "crossing pseudoknot classes did not retain distinct elements")
         expect(knotPairs.allSatisfy(\.isPseudoknot), "lettered pseudoknot pairs lost their pseudoknot identity")
     }
 

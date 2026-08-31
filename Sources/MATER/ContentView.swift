@@ -89,7 +89,7 @@ struct DocumentEditorView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 445)
-                .help("Switch among individual stems, topology-derived major elements, descriptive pair variation, nucleotide identity, and uncolored views.")
+                .help("Switch among fine stems, continuous high-level helix elements, descriptive pair variation, nucleotide identity, and uncolored views.")
 
                 Menu {
                     ColorPicker("Adenine (A)", selection: residuePalette.binding(for: "A"), supportsOpacity: false)
@@ -314,7 +314,7 @@ struct DocumentEditorView: View {
                 Text("Canonical pairs are colored by insertion-tolerant stem; large loops and branches start a new stem.")
                     .foregroundStyle(.secondary)
             case .element:
-                Text("Canonical pairs in nested or crossing stems are colored together as topology-derived major elements.")
+                Text("Canonical pairs in each continuous helix element share a color across bulges and internal loops; branches start new elements.")
                     .foregroundStyle(.secondary)
             case .residue:
                 LegendSwatch(color: Color(nsColor: residuePalette.adenine), label: "A")
