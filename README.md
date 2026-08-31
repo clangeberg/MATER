@@ -12,6 +12,11 @@
 
 MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is ad-hoc signed but not Apple-notarized.
 
+## Documentation and examples
+
+- Read the [complete MATER User Guide](docs/MATER-User-Guide.md) for tutorials, every editor and analysis feature, calculation methods, shortcuts, workflows, limitations, and troubleshooting.
+- Open the [Rfam teaching alignments](Examples/Rfam/README.md) to try two pseudoknotted riboswitches, one non-pseudoknotted riboswitch, and a selenocysteine tRNA alignment.
+
 ## Current features
 
 - Native macOS document GUI for `.sto`, `.stk`, and `.stockholm` files
@@ -67,6 +72,12 @@ Run the regression suite with:
 
 ```bash
 ./scripts/run-core-tests.sh
+```
+
+Audit the included Rfam examples with:
+
+```bash
+./scripts/run-core-tests.sh Examples/Rfam/*.sto
 ```
 
 ## Core editing controls

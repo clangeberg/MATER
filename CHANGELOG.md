@@ -2,6 +2,8 @@
 
 ## 0.6.1
 
+- Add a comprehensive user guide covering operation, calculations, workflows, limitations, and troubleshooting.
+- Add focused Rfam SEED teaching alignments for two pseudoknotted riboswitches, one ordinary riboswitch, and selenocysteine tRNA.
 - Replace the separate arc diagram with compact, column-aligned stem-arm blocks directly above the entropy, gap, and pairing-violation tracks.
 - Use matching colors to associate the two arms of each stem and dashed block outlines to identify pseudoknots.
 - Calculate pairing-violation heatmap values only among occupied, unambiguous base pairs; gaps and ambiguity codes no longer inflate the red problem track.
