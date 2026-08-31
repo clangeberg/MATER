@@ -88,6 +88,11 @@ struct PinnedReferencePanel: View {
                        BasePairRules.isCanonical(characters[pair.left], characters[pair.right]) {
                         backgrounds[column] = AlignmentPalette.stemColor(for: pair.stem)
                     }
+                case .element:
+                    if let pair = pairByColumn[column], characters.indices.contains(pair.left), characters.indices.contains(pair.right),
+                       BasePairRules.isCanonical(characters[pair.left], characters[pair.right]) {
+                        backgrounds[column] = AlignmentPalette.stemColor(for: pair.element)
+                    }
                 case .covariation:
                     if let recordIndex, let classification = covariance[recordIndex]?[column] {
                         backgrounds[column] = AlignmentPalette.covariation[classification]

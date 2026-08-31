@@ -378,6 +378,9 @@ struct StemEditSuggestion: Identifiable, Equatable, Sendable {
     let after: RowStemMetrics
     let globalCanonicalBefore: Int
     let globalCanonicalAfter: Int
+    let neighborhoodProfileBefore: Double
+    let neighborhoodProfileAfter: Double
+    let residueDisplacement: Int
     let leftBefore: String
     let leftAfter: String
     let rightBefore: String
@@ -385,6 +388,7 @@ struct StemEditSuggestion: Identifiable, Equatable, Sendable {
 
     var canonicalGain: Int { after.canonical - before.canonical }
     var globalCanonicalGain: Int { globalCanonicalAfter - globalCanonicalBefore }
+    var neighborhoodProfileGain: Double { neighborhoodProfileAfter - neighborhoodProfileBefore }
     var directionTitle: String { operationTitle }
 }
 
@@ -396,19 +400,21 @@ struct AlignmentRefinementScore: Equatable, Sendable {
 
     /// Automatic refinement uses a Pareto-style safety rule: canonical support
     /// may not decrease and definite noncanonical observations may not increase.
-    /// Gap and ambiguity counts are descriptive tie-breakers only because either
-    /// can represent a legitimate structural subtype or incomplete sequence.
+    /// Gap and ambiguity counts are descriptive only because either can
+    /// represent a legitimate structural subtype or incomplete sequence.
+    func isSafeChange(over other: AlignmentRefinementScore) -> Bool {
+        canonical >= other.canonical && noncanonical <= other.noncanonical
+    }
+
     func isSafeImprovement(over other: AlignmentRefinementScore) -> Bool {
-        canonical >= other.canonical
-            && noncanonical <= other.noncanonical
+        isSafeChange(over: other)
             && (canonical > other.canonical || noncanonical < other.noncanonical)
     }
 
     func isPreferred(over other: AlignmentRefinementScore) -> Bool {
         if canonical != other.canonical { return canonical > other.canonical }
         if noncanonical != other.noncanonical { return noncanonical < other.noncanonical }
-        if gaps != other.gaps { return gaps < other.gaps }
-        return ambiguous < other.ambiguous
+        return false
     }
 }
 
@@ -422,7 +428,70 @@ struct AlignmentRefinementResult: Equatable, Sendable {
     let converged: Bool
 }
 
+private struct RefinementColumnProfile: Sendable {
+    let weightedCounts: [Int: [Character: Double]]
+    let totals: [Int: Double]
+    let excludedWeight: Double
+    let excludedSymbols: [Int: Character]
+
+    func logProbability(of character: Character, at column: Int) -> Double {
+        guard let symbol = StemEditSuggester.profileSymbol(character) else { return 0 }
+        let excludedSymbol = excludedSymbols[column]
+        let total = (totals[column] ?? 0) - (excludedSymbol == nil ? 0 : excludedWeight)
+        guard total > 0 else { return 0 }
+        let alphabetSize = 5.0
+        let pseudocount = 0.25
+        let count = (weightedCounts[column]?[symbol] ?? 0)
+            - (excludedSymbol == symbol ? excludedWeight : 0)
+        return log((count + pseudocount) / (total + alphabetSize * pseudocount))
+    }
+}
+
+private struct WeightedAlignmentColumnProfile: Sendable {
+    let weightedCounts: [Int: [Character: Double]]
+    let totals: [Int: Double]
+    let weightByRecordIndex: [Int: Double]
+
+    func excluding(recordIndex: Int, characters: [Character]) -> RefinementColumnProfile {
+        let symbols = Dictionary(uniqueKeysWithValues: characters.enumerated().compactMap { column, character in
+            StemEditSuggester.profileSymbol(character).map { (column, $0) }
+        })
+        return RefinementColumnProfile(
+            weightedCounts: weightedCounts,
+            totals: totals,
+            excludedWeight: weightByRecordIndex[recordIndex] ?? 0,
+            excludedSymbols: symbols
+        )
+    }
+}
+
+private struct HelixWindowPlacement: Sendable {
+    let characters: [Character]
+    let displacement: Int
+    let profileScore: Double
+    let structuralProxyScore: Double
+}
+
+private struct HelixPlacementState {
+    var characters: [Character]
+    var residueIndex: Int
+    var gapIndex: Int
+    var displacement: Int
+    var profileScore: Double
+    var structuralProxyScore: Double
+
+    var rankingScore: Double {
+        profileScore + structuralProxyScore * 2.0 - Double(displacement) * 0.025
+    }
+}
+
 enum StemEditSuggester {
+    private static let neighborhoodFlank = 3
+    private static let maximumResidueDisplacement = 3
+    private static let placementBeamWidth = 256
+    private static let placementsPerWindow = 24
+    private static let minimumProfileGain = 0.20
+
     static func suggestions(
         in file: StockholmFile,
         modelRow: Int,
@@ -433,6 +502,10 @@ enum StemEditSuggester {
         let rows = file.rows
         guard rows.indices.contains(modelRow), rows[modelRow].kind.isSequence,
               let cursorPair = allPairs.first(where: { $0.left == column || $0.right == column }) else { return [] }
+        let sequenceWeights = ConsensusAnalyzer.gscWeights(for: file.sequenceRows.map {
+            Array(file.records[$0.recordIndex].aligned)
+        })
+        let alignmentProfile = weightedAlignmentProfile(in: file, sequenceWeights: sequenceWeights)
         return suggestions(
             in: file,
             modelRow: modelRow,
@@ -441,7 +514,12 @@ enum StemEditSuggester {
             cursorIsLeft: cursorPair.left == column,
             preferLinked: preferLinked,
             allPairs: allPairs,
-            globalCanonicalBeforeOverride: nil
+            globalCanonicalBeforeOverride: nil,
+            alignmentProfile: alignmentProfile,
+            includeHelixWindow: true,
+            includeRedistributionWindow: true,
+            maximumUniformShift: maximumResidueDisplacement,
+            allowProfileOnly: true
         )
     }
 
@@ -453,7 +531,12 @@ enum StemEditSuggester {
         cursorIsLeft: Bool,
         preferLinked: Bool,
         allPairs: [BasePair],
-        globalCanonicalBeforeOverride: Int?
+        globalCanonicalBeforeOverride: Int?,
+        alignmentProfile: WeightedAlignmentColumnProfile,
+        includeHelixWindow: Bool,
+        includeRedistributionWindow: Bool,
+        maximumUniformShift: Int,
+        allowProfileOnly: Bool
     ) -> [StemEditSuggestion] {
         let rows = file.rows
         guard rows.indices.contains(modelRow), rows[modelRow].kind.isSequence,
@@ -464,9 +547,34 @@ enum StemEditSuggester {
         let originalCharacters = Array(file.records[recordIndex].aligned)
         let originalAligned = file.records[recordIndex].aligned
         let beforeMetrics = rowMetrics(characters: originalCharacters, pairs: stemPairs)
+        let allPairsBeforeMetrics = rowMetrics(characters: originalCharacters, pairs: allPairs)
         let globalBefore = globalCanonicalBeforeOverride
             ?? StructuralQualityAnalyzer.quality(stem: cursorPair.stem, pairs: allPairs, in: file)?.canonical
             ?? 0
+        let endpoints = Set(stemPairs.flatMap { [$0.left, $0.right] })
+        let armWindows = refinementArmWindows(
+            stemPairs: stemPairs,
+            allPairs: allPairs,
+            alignmentLength: file.alignmentLength,
+            flank: neighborhoodFlank
+        )
+        let refinementWindows = mergedRanges(armWindows)
+        let editableColumns = Set(refinementWindows.flatMap { Array($0) })
+        let unpairedNeighborhoodColumns = editableColumns.subtracting(endpoints)
+        let profile = alignmentProfile.excluding(
+            recordIndex: recordIndex,
+            characters: originalCharacters
+        )
+        let profileBefore = profileScore(
+            characters: originalCharacters,
+            columns: unpairedNeighborhoodColumns,
+            profile: profile
+        )
+        let helixPresent = hasTwoArmOccupancy(
+            characters: originalCharacters,
+            armWindows: armWindows,
+            pairCount: stemPairs.count
+        )
         let linkOrder = preferLinked ? [true, false] : [false, true]
         var results: [StemEditSuggestion] = []
         var seenAlignments: Set<String> = []
@@ -478,16 +586,27 @@ enum StemEditSuggester {
             direction: Int,
             linked: Bool,
             moves: [Int: Int],
-            destinationColumns: Set<Int>
+            destinationColumns: Set<Int>,
+            residueDisplacement: Int
         ) {
             guard seenAlignments.insert(candidateAligned).inserted,
                   ungappedResidues(in: candidateAligned) == ungappedResidues(in: originalAligned) else { return }
             let candidateCharacters = Array(candidateAligned)
             let afterMetrics = rowMetrics(characters: candidateCharacters, pairs: stemPairs)
+            let allPairsAfterMetrics = rowMetrics(characters: candidateCharacters, pairs: allPairs)
+            guard allPairsAfterMetrics.canonical >= allPairsBeforeMetrics.canonical,
+                  allPairsAfterMetrics.noncanonical <= allPairsBeforeMetrics.noncanonical else { return }
+            if afterMetrics.canonical > beforeMetrics.canonical, !helixPresent { return }
             let globalAfter = globalBefore - beforeMetrics.canonical + afterMetrics.canonical
-            let improvement = afterMetrics.canonical > beforeMetrics.canonical
-                || (afterMetrics.canonical == beforeMetrics.canonical && afterMetrics.noncanonical < beforeMetrics.noncanonical)
-                || (afterMetrics.canonical == beforeMetrics.canonical && afterMetrics.gaps < beforeMetrics.gaps)
+            let candidateProfile = profileScore(
+                characters: candidateCharacters,
+                columns: unpairedNeighborhoodColumns,
+                profile: profile
+            )
+            let structuralImprovement = afterMetrics.canonical > beforeMetrics.canonical
+                || afterMetrics.noncanonical < beforeMetrics.noncanonical
+            let improvement = structuralImprovement
+                || (allowProfileOnly && candidateProfile - profileBefore >= minimumProfileGain)
             guard improvement else { return }
 
             let leftColumns = stemPairs.map(\.left).sorted()
@@ -509,6 +628,9 @@ enum StemEditSuggester {
                 after: afterMetrics,
                 globalCanonicalBefore: globalBefore,
                 globalCanonicalAfter: globalAfter,
+                neighborhoodProfileBefore: profileBefore,
+                neighborhoodProfileAfter: candidateProfile,
+                residueDisplacement: residueDisplacement,
                 leftBefore: string(at: leftColumns, in: originalCharacters),
                 leftAfter: string(at: leftColumns, in: candidateCharacters),
                 rightBefore: string(at: rightColumns, in: originalCharacters),
@@ -533,7 +655,8 @@ enum StemEditSuggester {
                     direction: direction,
                     linked: linked,
                     moves: plan.moves,
-                    destinationColumns: plan.primaryDestinationColumns
+                    destinationColumns: plan.primaryDestinationColumns,
+                    residueDisplacement: plan.moves.count
                 )
             }
         }
@@ -541,7 +664,6 @@ enum StemEditSuggester {
         // Also test width-preserving gap transfers near either arm. This can
         // pull a residue that is just outside an SS_cons column into register,
         // which moving the already-aligned stem columns cannot do.
-        let endpoints = Set(stemPairs.flatMap { [$0.left, $0.right] })
         let candidateColumns = Set(endpoints.flatMap { endpoint in
             [endpoint - 1, endpoint, endpoint + 1].filter { $0 >= 0 && $0 < file.alignmentLength }
         })
@@ -554,7 +676,8 @@ enum StemEditSuggester {
                     direction: 1,
                     linked: false,
                     moves: [:],
-                    destinationColumns: endpoints
+                    destinationColumns: endpoints,
+                    residueDisplacement: 1
                 )
             }
             if let closed = closingGap(in: originalAligned, at: candidateColumn) {
@@ -565,26 +688,400 @@ enum StemEditSuggester {
                     direction: -1,
                     linked: false,
                     moves: [:],
-                    destinationColumns: endpoints
+                    destinationColumns: endpoints,
+                    residueDisplacement: 1
                 )
             }
         }
 
-        return results.sorted {
+        if includeHelixWindow, helixPresent, armWindows.count == 2 {
+            let leftPlacements = uniformArmPlacements(
+                characters: originalCharacters,
+                range: armWindows[0],
+                maximumShift: maximumUniformShift
+            )
+            let rightPlacements = uniformArmPlacements(
+                characters: originalCharacters,
+                range: armWindows[1],
+                maximumShift: maximumUniformShift
+            )
+            var candidateCounter = 0
+            for leftPlacement in leftPlacements {
+                for rightPlacement in rightPlacements {
+                    var replacement = originalCharacters
+                    replacement.replaceSubrange(armWindows[0], with: leftPlacement.characters)
+                    replacement.replaceSubrange(armWindows[1], with: rightPlacement.characters)
+                    candidateCounter += 1
+                    appendCandidate(
+                        String(replacement),
+                        identifier: "helix-arm-window:\(modelRow):\(cursorPair.stem):\(candidateCounter)",
+                        title: "Optimize helix arms and ±\(neighborhoodFlank)-nt flanks",
+                        direction: 0,
+                        linked: true,
+                        moves: [:],
+                        destinationColumns: editableColumns,
+                        residueDisplacement: leftPlacement.displacement + rightPlacement.displacement
+                    )
+                }
+            }
+        }
+
+        if includeHelixWindow, includeRedistributionWindow, helixPresent, !refinementWindows.isEmpty {
+            let placements = refinementWindows.map { range in
+                windowPlacements(
+                    characters: originalCharacters,
+                    range: range,
+                    unpairedColumns: unpairedNeighborhoodColumns,
+                    profile: profile,
+                    stemPairs: stemPairs
+                )
+            }
+            var candidateCounter = 0
+
+            func combinePlacements(
+                windowIndex: Int,
+                characters: [Character],
+                displacement: Int
+            ) {
+                if windowIndex == refinementWindows.count {
+                    candidateCounter += 1
+                    appendCandidate(
+                        String(characters),
+                        identifier: "helix-window:\(modelRow):\(cursorPair.stem):\(candidateCounter)",
+                        title: "Optimize helix and ±\(neighborhoodFlank)-nt neighborhood",
+                        direction: 0,
+                        linked: true,
+                        moves: [:],
+                        destinationColumns: editableColumns,
+                        residueDisplacement: displacement
+                    )
+                    return
+                }
+
+                let range = refinementWindows[windowIndex]
+                for placement in placements[windowIndex] {
+                    var replacement = characters
+                    replacement.replaceSubrange(range, with: placement.characters)
+                    combinePlacements(
+                        windowIndex: windowIndex + 1,
+                        characters: replacement,
+                        displacement: displacement + placement.displacement
+                    )
+                }
+            }
+
+            combinePlacements(windowIndex: 0, characters: originalCharacters, displacement: 0)
+        }
+
+        return Array(results.sorted {
             if $0.canonicalGain != $1.canonicalGain { return $0.canonicalGain > $1.canonicalGain }
             if $0.globalCanonicalGain != $1.globalCanonicalGain { return $0.globalCanonicalGain > $1.globalCanonicalGain }
             if $0.after.noncanonical != $1.after.noncanonical { return $0.after.noncanonical < $1.after.noncanonical }
-            if $0.after.gaps != $1.after.gaps { return $0.after.gaps < $1.after.gaps }
+            if abs($0.neighborhoodProfileGain - $1.neighborhoodProfileGain) > 0.000_001 {
+                return $0.neighborhoodProfileGain > $1.neighborhoodProfileGain
+            }
+            if $0.residueDisplacement != $1.residueDisplacement { return $0.residueDisplacement < $1.residueDisplacement }
             if $0.linked != $1.linked { return $0.linked && !$1.linked }
             return $0.id < $1.id
+        }.prefix(16))
+    }
+
+    private static func refinementArmWindows(
+        stemPairs: [BasePair],
+        allPairs: [BasePair],
+        alignmentLength: Int,
+        flank: Int
+    ) -> [ClosedRange<Int>] {
+        guard alignmentLength > 0,
+              let leftMinimum = stemPairs.map(\.left).min(),
+              let leftMaximum = stemPairs.map(\.left).max(),
+              let rightMinimum = stemPairs.map(\.right).min(),
+              let rightMaximum = stemPairs.map(\.right).max() else { return [] }
+        let stemColumns = Set(stemPairs.flatMap { [$0.left, $0.right] })
+        let blockedColumns = Set(allPairs.flatMap { [$0.left, $0.right] }).subtracting(stemColumns)
+
+        func expanded(_ core: ClosedRange<Int>) -> ClosedRange<Int> {
+            var lower = core.lowerBound
+            var upper = core.upperBound
+            var added = 0
+            while lower > 0, added < flank {
+                let candidate = lower - 1
+                guard !blockedColumns.contains(candidate) else { break }
+                lower = candidate
+                added += 1
+            }
+            added = 0
+            while upper + 1 < alignmentLength, added < flank {
+                let candidate = upper + 1
+                guard !blockedColumns.contains(candidate) else { break }
+                upper = candidate
+                added += 1
+            }
+            return lower...upper
         }
+
+        var leftWindow = expanded(leftMinimum...leftMaximum)
+        var rightWindow = expanded(rightMinimum...rightMaximum)
+        if leftWindow.upperBound >= rightWindow.lowerBound {
+            let split = (leftMaximum + rightMinimum) / 2
+            leftWindow = leftWindow.lowerBound...max(leftWindow.lowerBound, split)
+            rightWindow = min(rightWindow.upperBound, split + 1)...rightWindow.upperBound
+        }
+        return [leftWindow, rightWindow]
+    }
+
+    private static func mergedRanges(_ ranges: [ClosedRange<Int>]) -> [ClosedRange<Int>] {
+        let sorted = ranges.sorted { $0.lowerBound < $1.lowerBound }
+        guard var current = sorted.first else { return [] }
+        var result: [ClosedRange<Int>] = []
+        for range in sorted.dropFirst() {
+            if range.lowerBound <= current.upperBound + 1 {
+                current = current.lowerBound...max(current.upperBound, range.upperBound)
+            } else {
+                result.append(current)
+                current = range
+            }
+        }
+        result.append(current)
+        return result
+    }
+
+    private static func hasTwoArmOccupancy(
+        characters: [Character],
+        armWindows: [ClosedRange<Int>],
+        pairCount: Int
+    ) -> Bool {
+        guard armWindows.count == 2 else { return false }
+        let requiredPerArm = max(1, (pairCount + 1) / 2)
+        return armWindows.allSatisfy { range in
+            range.reduce(into: 0) { count, column in
+                guard characters.indices.contains(column) else { return }
+                if !isAlignmentGap(characters[column]) { count += 1 }
+            } >= requiredPerArm
+        }
+    }
+
+    private static func weightedAlignmentProfile(
+        in file: StockholmFile,
+        sequenceWeights: [Float]
+    ) -> WeightedAlignmentColumnProfile {
+        let sequenceRows = file.sequenceRows
+        let sequences = sequenceRows.map { Array(file.records[$0.recordIndex].aligned) }
+        var counts: [Int: [Character: Double]] = [:]
+        var totals: [Int: Double] = [:]
+        var weightByRecordIndex: [Int: Double] = [:]
+
+        for sequenceIndex in sequenceRows.indices {
+            let row = sequenceRows[sequenceIndex]
+            let weight = sequenceIndex < sequenceWeights.count ? Double(sequenceWeights[sequenceIndex]) : 1
+            guard weight > 0 else { continue }
+            weightByRecordIndex[row.recordIndex] = weight
+            for (column, character) in sequences[sequenceIndex].enumerated() {
+                guard let symbol = profileSymbol(character) else { continue }
+                counts[column, default: [:]][symbol, default: 0] += weight
+                totals[column, default: 0] += weight
+            }
+        }
+        return WeightedAlignmentColumnProfile(
+            weightedCounts: counts,
+            totals: totals,
+            weightByRecordIndex: weightByRecordIndex
+        )
+    }
+
+    static func profileSymbol(_ character: Character) -> Character? {
+        if isAlignmentGap(character) { return "-" }
+        let upper = Character(String(character).uppercased())
+        switch upper {
+        case "A", "C", "G", "U": return upper
+        case "T": return "U"
+        default: return nil
+        }
+    }
+
+    private static func profileScore(
+        characters: [Character],
+        columns: Set<Int>,
+        profile: RefinementColumnProfile
+    ) -> Double {
+        columns.reduce(0) { total, column in
+            guard characters.indices.contains(column) else { return total }
+            return total + profile.logProbability(of: characters[column], at: column)
+        }
+    }
+
+    private static func windowPlacements(
+        characters: [Character],
+        range: ClosedRange<Int>,
+        unpairedColumns: Set<Int>,
+        profile: RefinementColumnProfile,
+        stemPairs: [BasePair]
+    ) -> [HelixWindowPlacement] {
+        let original = Array(characters[range])
+        let residues = original.enumerated().compactMap { offset, character -> (Character, Int)? in
+            isAlignmentGap(character) ? nil : (character, offset)
+        }
+        let gaps = original.filter(isAlignmentGap)
+        guard !residues.isEmpty, !gaps.isEmpty else {
+            return [HelixWindowPlacement(
+                characters: original,
+                displacement: 0,
+                profileScore: 0,
+                structuralProxyScore: 0
+            )]
+        }
+
+        var states = [HelixPlacementState(
+            characters: [],
+            residueIndex: 0,
+            gapIndex: 0,
+            displacement: 0,
+            profileScore: 0,
+            structuralProxyScore: 0
+        )]
+        let partnerByColumn = Dictionary(uniqueKeysWithValues: stemPairs.flatMap { pair in
+            [(pair.left, pair.right), (pair.right, pair.left)]
+        })
+
+        for offset in original.indices {
+            let globalColumn = range.lowerBound + offset
+            var nextStates: [HelixPlacementState] = []
+            nextStates.reserveCapacity(states.count * 2)
+
+            for state in states {
+                if state.residueIndex < residues.count {
+                    let residue = residues[state.residueIndex]
+                    let displacement = abs(offset - residue.1)
+                    if displacement <= maximumResidueDisplacement {
+                        var next = state
+                        next.characters.append(residue.0)
+                        next.residueIndex += 1
+                        next.displacement += displacement
+                        if unpairedColumns.contains(globalColumn) {
+                            next.profileScore += profile.logProbability(of: residue.0, at: globalColumn)
+                        }
+                        if let partner = partnerByColumn[globalColumn], characters.indices.contains(partner) {
+                            let partnerCharacter = characters[partner]
+                            if !isAlignmentGap(partnerCharacter) {
+                                next.structuralProxyScore += BasePairRules.isCanonical(residue.0, partnerCharacter) ? 1 : -0.5
+                            }
+                        }
+                        nextStates.append(next)
+                    }
+                }
+
+                if state.gapIndex < gaps.count {
+                    var next = state
+                    let gap = gaps[state.gapIndex]
+                    next.characters.append(gap)
+                    next.gapIndex += 1
+                    if unpairedColumns.contains(globalColumn) {
+                        next.profileScore += profile.logProbability(of: gap, at: globalColumn)
+                    }
+                    nextStates.append(next)
+                }
+            }
+
+            var grouped: [Int: [HelixPlacementState]] = [:]
+            for state in nextStates {
+                grouped[state.residueIndex, default: []].append(state)
+            }
+            states = grouped.values.flatMap { group in
+                group.sorted { lhs, rhs in
+                    if abs(lhs.rankingScore - rhs.rankingScore) > 0.000_001 {
+                        return lhs.rankingScore > rhs.rankingScore
+                    }
+                    return lhs.displacement < rhs.displacement
+                }.prefix(24)
+            }
+            .sorted { $0.rankingScore > $1.rankingScore }
+            if states.count > placementBeamWidth {
+                states.removeLast(states.count - placementBeamWidth)
+            }
+        }
+
+        let completed = states.filter {
+            $0.residueIndex == residues.count && $0.gapIndex == gaps.count
+        }
+        var placements: [HelixWindowPlacement] = completed.map {
+            HelixWindowPlacement(
+                characters: $0.characters,
+                displacement: $0.displacement,
+                profileScore: $0.profileScore,
+                structuralProxyScore: $0.structuralProxyScore
+            )
+        }
+        if !placements.contains(where: { $0.characters == original }) {
+            placements.append(HelixWindowPlacement(
+                characters: original,
+                displacement: 0,
+                profileScore: original.enumerated().reduce(0) { score, item in
+                    let column = range.lowerBound + item.offset
+                    guard unpairedColumns.contains(column) else { return score }
+                    return score + profile.logProbability(of: item.element, at: column)
+                },
+                structuralProxyScore: 0
+            ))
+        }
+        var seen: Set<String> = []
+        return Array(placements.sorted { lhs, rhs in
+            let lhsScore = lhs.profileScore + lhs.structuralProxyScore * 2.0 - Double(lhs.displacement) * 0.025
+            let rhsScore = rhs.profileScore + rhs.structuralProxyScore * 2.0 - Double(rhs.displacement) * 0.025
+            if abs(lhsScore - rhsScore) > 0.000_001 { return lhsScore > rhsScore }
+            return lhs.displacement < rhs.displacement
+        }.filter { seen.insert(String($0.characters)).inserted }.prefix(placementsPerWindow))
+    }
+
+    private static func uniformArmPlacements(
+        characters: [Character],
+        range: ClosedRange<Int>,
+        maximumShift: Int
+    ) -> [HelixWindowPlacement] {
+        let original = Array(characters[range])
+        let sourceColumns = original.indices.filter { !isAlignmentGap(original[$0]) }
+        guard !sourceColumns.isEmpty else {
+            return [HelixWindowPlacement(
+                characters: original,
+                displacement: 0,
+                profileScore: 0,
+                structuralProxyScore: 0
+            )]
+        }
+        var result = [HelixWindowPlacement(
+            characters: original,
+            displacement: 0,
+            profileScore: 0,
+            structuralProxyScore: 0
+        )]
+        let sources = Set(sourceColumns)
+        let boundedShift = max(0, min(maximumResidueDisplacement, maximumShift))
+        guard boundedShift > 0 else { return result }
+        for direction in -boundedShift...boundedShift where direction != 0 {
+            let destinations = sourceColumns.map { $0 + direction }
+            guard destinations.allSatisfy(original.indices.contains),
+                  Set(destinations).subtracting(sources).allSatisfy({ isAlignmentGap(original[$0]) }) else { continue }
+            var shifted = original
+            for source in sourceColumns { shifted[source] = "-" }
+            for (source, destination) in zip(sourceColumns, destinations) {
+                shifted[destination] = original[source]
+            }
+            result.append(HelixWindowPlacement(
+                characters: shifted,
+                displacement: sourceColumns.count * abs(direction),
+                profileScore: 0,
+                structuralProxyScore: 0
+            ))
+        }
+        return result
     }
 
     /// Iteratively applies the strongest structural improvement available for
     /// each sequence. Every accepted edit preserves ungapped residues, never
     /// reduces the alignment-wide canonical count, and never increases the
     /// definite noncanonical count. Successive passes build on prior edits
-    /// until no supported one-column move can safely improve those metrics.
+    /// until no supported helix-window or adjacent move can safely improve the
+    /// structural metrics. The neighboring GSC-weighted profile breaks ties;
+    /// it cannot make an otherwise neutral automatic edit eligible.
     static func refineEntireAlignment(
         in source: StockholmFile,
         preferLinked: Bool,
@@ -607,6 +1104,11 @@ enum StemEditSuggester {
         let stems = Dictionary(grouping: allPairs, by: \.stem)
             .sorted { $0.key < $1.key }
             .map { $0.value.sorted { $0.left < $1.left } }
+        // GSC weights depend on ordered ungapped sequence identity, which the
+        // refinement never changes, so calculate them once for the full run.
+        let sequenceWeights = ConsensusAnalyzer.gscWeights(for: source.sequenceRows.map {
+            Array(source.records[$0.recordIndex].aligned)
+        })
         var refined = source
         var score = beforeScore
         var editCount = 0
@@ -618,62 +1120,76 @@ enum StemEditSuggester {
             passes += 1
             var changedInPass = false
             let rows = refined.rows
+            let passProfile = weightedAlignmentProfile(
+                in: refined,
+                sequenceWeights: sequenceWeights
+            )
 
             for modelRow in rows.indices where rows[modelRow].kind.isSequence {
                 let recordIndex = rows[modelRow].recordIndex
-                let currentAligned = refined.records[recordIndex].aligned
-                let currentRowScore = refinementScore(
-                    rowMetrics(characters: Array(currentAligned), pairs: allPairs)
-                )
-                var bestSuggestion: StemEditSuggestion?
-                var bestScore: AlignmentRefinementScore?
-                var seenAlignments: Set<String> = []
+                let maximumRowIterations = max(1, stems.count * 3)
+                var rowIterations = 0
+                while rowIterations < maximumRowIterations {
+                    let currentAligned = refined.records[recordIndex].aligned
+                    let currentRowScore = refinementScore(
+                        rowMetrics(characters: Array(currentAligned), pairs: allPairs)
+                    )
+                    var bestSuggestion: StemEditSuggestion?
+                    var bestScore: AlignmentRefinementScore?
+                    var seenAlignments: Set<String> = []
 
-                for stemPairs in stems {
-                    guard let cursorPair = stemPairs.first else { continue }
-                    for cursorIsLeft in [true, false] {
-                        let candidates = suggestions(
-                            in: refined,
-                            modelRow: modelRow,
-                            cursorPair: cursorPair,
-                            stemPairs: stemPairs,
-                            cursorIsLeft: cursorIsLeft,
-                            preferLinked: preferLinked,
-                            allPairs: allPairs,
-                            globalCanonicalBeforeOverride: 0
-                        )
-                        for candidate in candidates where seenAlignments.insert(candidate.proposedAligned).inserted {
-                            let candidateRowScore = refinementScore(
-                                rowMetrics(characters: Array(candidate.proposedAligned), pairs: allPairs)
+                    for stemPairs in stems {
+                        guard let cursorPair = stemPairs.first else { continue }
+                        for cursorIsLeft in [true, false] {
+                            let candidates = suggestions(
+                                in: refined,
+                                modelRow: modelRow,
+                                cursorPair: cursorPair,
+                                stemPairs: stemPairs,
+                                cursorIsLeft: cursorIsLeft,
+                                preferLinked: preferLinked,
+                                allPairs: allPairs,
+                                globalCanonicalBeforeOverride: 0,
+                                alignmentProfile: passProfile,
+                                includeHelixWindow: cursorIsLeft,
+                                includeRedistributionWindow: false,
+                                maximumUniformShift: 1,
+                                allowProfileOnly: false
                             )
-                            let candidateScore = replacing(
-                                score,
-                                rowScore: currentRowScore,
-                                with: candidateRowScore
-                            )
-                            guard candidateScore.isSafeImprovement(over: score) else { continue }
-                            if let existingScore = bestScore {
-                                if candidateScore.isPreferred(over: existingScore)
-                                    || (candidateScore == existingScore
-                                        && bestSuggestion.map { isPreferred(candidate, over: $0) } == true) {
+                            for candidate in candidates where seenAlignments.insert(candidate.proposedAligned).inserted {
+                                let candidateRowScore = refinementScore(
+                                    rowMetrics(characters: Array(candidate.proposedAligned), pairs: allPairs)
+                                )
+                                let candidateScore = replacing(
+                                    score,
+                                    rowScore: currentRowScore,
+                                    with: candidateRowScore
+                                )
+                                guard candidateScore.isSafeImprovement(over: score) else { continue }
+                                if let existingScore = bestScore {
+                                    if candidateScore.isPreferred(over: existingScore)
+                                        || (candidateScore == existingScore
+                                            && bestSuggestion.map { isPreferred(candidate, over: $0) } == true) {
+                                        bestSuggestion = candidate
+                                        bestScore = candidateScore
+                                    }
+                                } else {
                                     bestSuggestion = candidate
                                     bestScore = candidateScore
                                 }
-                            } else {
-                                bestSuggestion = candidate
-                                bestScore = candidateScore
                             }
                         }
                     }
-                }
 
-                guard let bestSuggestion, let bestScore,
-                      refined.records[recordIndex].aligned == bestSuggestion.expectedAligned else { continue }
-                refined.records[recordIndex].aligned = bestSuggestion.proposedAligned
-                score = bestScore
-                editCount += 1
-                changedRecordIndices.insert(recordIndex)
-                changedInPass = true
+                    guard let bestSuggestion, let bestScore,
+                          refined.records[recordIndex].aligned == bestSuggestion.expectedAligned else { break }
+                    refined.records[recordIndex].aligned = bestSuggestion.proposedAligned
+                    score = bestScore
+                    editCount += 1
+                    changedRecordIndices.insert(recordIndex)
+                    changedInPass = true
+                    rowIterations += 1
+                }
             }
 
             if !changedInPass {
@@ -745,7 +1261,12 @@ enum StemEditSuggester {
     private static func isPreferred(_ lhs: StemEditSuggestion, over rhs: StemEditSuggestion) -> Bool {
         if lhs.canonicalGain != rhs.canonicalGain { return lhs.canonicalGain > rhs.canonicalGain }
         if lhs.after.noncanonical != rhs.after.noncanonical { return lhs.after.noncanonical < rhs.after.noncanonical }
-        if lhs.after.gaps != rhs.after.gaps { return lhs.after.gaps < rhs.after.gaps }
+        if abs(lhs.neighborhoodProfileGain - rhs.neighborhoodProfileGain) > 0.000_001 {
+            return lhs.neighborhoodProfileGain > rhs.neighborhoodProfileGain
+        }
+        if lhs.residueDisplacement != rhs.residueDisplacement {
+            return lhs.residueDisplacement < rhs.residueDisplacement
+        }
         if lhs.linked != rhs.linked { return lhs.linked && !rhs.linked }
         return lhs.id < rhs.id
     }
@@ -818,5 +1339,9 @@ enum StemEditSuggester {
 
     private static func ungappedResidues(in aligned: String) -> String {
         String(aligned.filter { !(StockholmFile.isGap($0) || $0 == "_" || $0 == " ") })
+    }
+
+    private static func isAlignmentGap(_ character: Character) -> Bool {
+        StockholmFile.isGap(character) || character == "_" || character == " "
     }
 }

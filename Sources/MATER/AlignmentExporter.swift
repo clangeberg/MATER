@@ -266,6 +266,12 @@ private struct AlignmentExportSnapshot {
                     background = AlignmentPalette.stemColor(for: stem)
                 }
             }
+        case .element:
+            if let pair = stemPairByColumn[column] {
+                if !row.kind.isSequence || canonicalStemColumnsByRecord[row.recordIndex]?.contains(column) == true {
+                    background = AlignmentPalette.stemColor(for: pair.element)
+                }
+            }
         case .covariation:
             if row.kind.isSequence, let classification = covariance[row.recordIndex]?[column] {
                 background = AlignmentPalette.covariation[classification]
@@ -289,6 +295,12 @@ private struct AlignmentExportSnapshot {
                consensusCharacters.indices.contains(pair.left), consensusCharacters.indices.contains(pair.right),
                BasePairRules.isCanonical(consensusCharacters[pair.left], consensusCharacters[pair.right]) {
                 background = AlignmentPalette.stemColor(for: pair.stem)
+            }
+        case .element:
+            if let pair = stemPairByColumn[column],
+               consensusCharacters.indices.contains(pair.left), consensusCharacters.indices.contains(pair.right),
+               BasePairRules.isCanonical(consensusCharacters[pair.left], consensusCharacters[pair.right]) {
+                background = AlignmentPalette.stemColor(for: pair.element)
             }
         case .residue:
             background = residueColors.color(for: character)
@@ -460,6 +472,8 @@ private struct AlignmentExportSnapshot {
         switch colorMode {
         case .stem:
             return [("canonical stem", AlignmentPalette.stemColor(for: 0)), ("pair violation", .white)]
+        case .element:
+            return [("canonical structural element", AlignmentPalette.stemColor(for: 0)), ("pair violation", .white)]
         case .covariation:
             return [
                 ("same pair", AlignmentPalette.covariation[.conserved]!),

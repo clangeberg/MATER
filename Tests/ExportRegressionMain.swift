@@ -53,6 +53,21 @@ struct ExportRegressionMain {
         precondition(String(decoding: pdf.prefix(4), as: UTF8.self) == "%PDF", "PDF header is missing.")
         precondition(pdf.count > 1_000, "PDF export is unexpectedly small.")
 
+        let elementSVG = AlignmentExporter.data(
+            format: .svg,
+            file: file,
+            colorMode: .element,
+            residueColors: colors,
+            hidePosteriorProbability: true,
+            showEntropy: false,
+            showGrid: true,
+            fontSize: 15
+        )
+        precondition(
+            String(decoding: elementSVG, as: UTF8.self).contains("canonical structural element"),
+            "Element-color export legend is missing."
+        )
+
         let selectedSVG = AlignmentExporter.data(
             format: .svg,
             file: file,

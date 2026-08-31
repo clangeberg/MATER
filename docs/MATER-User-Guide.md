@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 0.7.0 alpha 1 • macOS 13 or newer**
+**MATER version 0.8.0 alpha 1 • macOS 13 or newer**
 
-Manual revision: 30 August 2026
+Manual revision: 31 August 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.7.0 alpha 1.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.8.0 alpha 1.
 
 > **Alpha safety rule:** Work on a duplicate of an important alignment until MATER has been validated on your own files. Keep **Alignment locked** during normal curation.
 
@@ -27,24 +27,25 @@ This manual is both a tutorial and a reference. New users should read Sections 1
 11. [Calculated consensus and analysis tracks](#11-calculated-consensus-and-analysis-tracks)
 12. [Structural Quality Inspector](#12-structural-quality-inspector)
 13. [Suggested edits](#13-suggested-edits)
-14. [Large-alignment overview, filters, and sorting](#14-large-alignment-overview-filters-and-sorting)
-15. [Search and problem navigation](#15-search-and-problem-navigation)
-16. [Change tracking and recovery](#16-change-tracking-and-recovery)
-17. [PDF and SVG export](#17-pdf-and-svg-export)
-18. [Validation and saving](#18-validation-and-saving)
-19. [Keyboard and mouse reference](#19-keyboard-and-mouse-reference)
-20. [Recommended workflows](#20-recommended-workflows)
-21. [Rfam example alignments](#21-rfam-example-alignments)
-22. [Troubleshooting and frequently asked questions](#22-troubleshooting-and-frequently-asked-questions)
-23. [Current limitations](#23-current-limitations)
-24. [Reporting a useful alpha issue](#24-reporting-a-useful-alpha-issue)
-25. [Building from source](#25-building-from-source)
-26. [Glossary](#26-glossary)
-27. [Methods summary and references](#27-methods-summary-and-references)
+14. [Optional R-scape analysis](#14-optional-r-scape-analysis)
+15. [Large-alignment overview, filters, and sorting](#15-large-alignment-overview-filters-and-sorting)
+16. [Search and problem navigation](#16-search-and-problem-navigation)
+17. [Change tracking and recovery](#17-change-tracking-and-recovery)
+18. [PDF and SVG export](#18-pdf-and-svg-export)
+19. [Validation and saving](#19-validation-and-saving)
+20. [Keyboard and mouse reference](#20-keyboard-and-mouse-reference)
+21. [Recommended workflows](#21-recommended-workflows)
+22. [Rfam example alignments](#22-rfam-example-alignments)
+23. [Troubleshooting and frequently asked questions](#23-troubleshooting-and-frequently-asked-questions)
+24. [Current limitations](#24-current-limitations)
+25. [Reporting a useful alpha issue](#25-reporting-a-useful-alpha-issue)
+26. [Building from source](#26-building-from-source)
+27. [Glossary](#27-glossary)
+28. [Methods summary and references](#28-methods-summary-and-references)
 
 ## 1. Scope and terminology
 
-MATER is intended for manual refinement of an existing RNA alignment. It is not a de novo aligner, structure predictor, covariance-model builder, or statistical covariation test.
+MATER is intended for manual refinement of an existing RNA alignment. It is not a de novo aligner, structure predictor, or covariance-model builder. Statistical covariation analysis is available only by running a separately installed R-scape program; MATER does not reimplement R-scape's test.
 
 In this guide:
 
@@ -67,12 +68,12 @@ In this guide:
 
 ### 2.2 Installing an alpha ZIP
 
-1. Unzip `MATER-0.7.0-alpha.1-macOS-universal.zip`.
+1. Unzip `MATER-0.8.0-alpha.1-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 0.7.0 alpha 1 is ad-hoc signed and is not Apple-notarized. This is acceptable for a supervised alpha but produces more Gatekeeper friction than a Developer ID-signed, notarized release.
+Version 0.8.0 alpha 1 is ad-hoc signed and is not Apple-notarized. This is acceptable for a supervised alpha but produces more Gatekeeper friction than a Developer ID-signed, notarized release.
 
 ### 2.3 Opening an alignment
 
@@ -104,13 +105,14 @@ MATER expects one alignment and one aligned segment per displayed row. All seque
 | `#=GF`, `#=GS`, comments, blank lines | Metadata/raw text | Preserved, not displayed as alignment rows |
 | `# STOCKHOLM 1.0` and `//` | Header and terminator | Preserved and validated |
 
-MATER preserves the original record order, spacing around parsed alignment values, comments, metadata, line-ending style, and unknown raw lines. Editing an aligned row changes its aligned value while retaining its parsed prefix and suffix.
+For a single-block file, MATER preserves the original record order, spacing around parsed alignment values, comments, metadata, line-ending style, and unknown raw lines. Editing an aligned row changes its aligned value while retaining its parsed prefix and suffix.
+
+Wrapped/interleaved Stockholm is normalized on open. Later segments with the same sequence name, `#=GC` tag, or `#=GR` sequence/tag identity are concatenated onto the first logical row. Raw metadata, comments, and blank lines are retained, but saving writes one complete aligned string per logical row rather than recreating the visual block wrapping. A validation warning reports how many later row segments were joined.
 
 ### 3.3 Input restrictions in the current alpha
 
 - Use a single Stockholm alignment per file.
-- Use one complete aligned string per sequence or annotation row.
-- **Interleaved/multi-block Stockholm alignments are not currently concatenated.** Repeated sequence names in later blocks appear as additional rows. Convert such files to single-line-per-sequence Stockholm before editing.
+- Single-block and wrapped/interleaved sequence, `#=GC`, and `#=GR` rows are accepted. Interleaved files are written back in normalized single-block form.
 - All displayed rows should have the same alignment length. MATER reports inconsistent widths as validation errors.
 - Sequence names are not renamed, added, or deleted through the current GUI.
 - UTF-8 and ISO Latin-1 input can be opened. Saved output is UTF-8.
@@ -165,7 +167,7 @@ The repository includes focused teaching examples in `Examples/Rfam`.
 3. Look at the colored blocks above the bottom heatmaps. Each matching color marks the two arms of one stem.
 4. Click a block. The selected column moves there and the Quality Inspector displays that stem.
 5. Click a pair in **Pairs in this stem** to select both paired columns.
-6. Switch among **Stem**, **Pair variation**, and **Residue** color modes.
+6. Switch among **Stem**, **Element**, **Pair variation**, and **Residue** color modes.
 7. Double-click a paired cell to select its pair, then triple-click it to select the complete stem.
 
 ### 5.2 Inspect a pseudoknot
@@ -299,7 +301,7 @@ Column annotations are changed in lockstep. If deleting a column removes only on
 
 ### 8.1 Reading structure
 
-MATER parses all `#=GC SS_cons*` rows. Each opener is matched to the next valid closer using a stack for that bracket class. Consecutive immediately nested pairs of the same class are grouped into one stem.
+MATER parses all `#=GC SS_cons*` rows. Each opener is matched to the next valid closer using a separate stack for that bracket class. Immediately nested pairs of the same class and structure row are grouped into one stem. Up to two skipped columns in total across the two arms are tolerated, so a one-column bulge or small symmetric internal loop does not split an otherwise continuous helix.
 
 Unmatched openers or closers produce validation errors.
 
@@ -331,17 +333,47 @@ Select one or more columns and click **Unpair**. Every recognized pair touching 
 
 Existing `A/a` through `Z/z` classes are parsed even though the GUI creates only `A/a` in its fourth pseudoknot layer. They remain editable as annotation characters and participate in highlighting, scoring, stem coloring, and export.
 
+### 8.5 How stems and major elements are inferred
+
+WUSS/dot-bracket symbols encode base-pair relationships and pairing classes; they do not encode arbitrary biological domain names or requested colors. Infernal builds covariance-model pair and bifurcation states from the consensus pairing topology, while MATER derives two useful display levels from that same kind of topology:
+
+- A **stem** is an insertion-tolerant stack within one `SS_cons*` row and opener class. A combined bulge of zero, one, or two skipped arm columns remains in the stack. A larger internal loop, a branch, a disjoint helix, a different opener class, or a different structure row begins another stem.
+- A **major element** is a connected component of overlapping stem spans. Containment joins nested/branched stems; interval crossings join interacting pseudoknot stems. Disjoint hairpins remain separate elements.
+
+For example, these annotations both resolve to three stems—one outer stem and two internal stems—even though only the first uses different bracket classes:
+
+```text
+((((([[[[[.....]]]]]...{{{{{.....}}}}})))))
+((((((((((.....)))))...(((((.....))))))))))
+```
+
+The large topological discontinuities prevent the ordinary-parentheses form from collapsing into one stack. In **Stem** mode the three stacks have different colors. In **Element** mode their overlapping/nested spans give them one color.
+
+A small insertion behaves differently:
+
+```text
+(((.....)).)
+```
+
+The outer pair skips one extra column on its right arm, but all three pairs remain one stem. Lettered K-, L-, M-, and more complex pseudoknot classes are parsed independently with their own stacks; crossing stem spans join only in **Element** mode. This retains individual pseudoknot stems in **Stem** mode while allowing an entire connected knot network to share a major-element color.
+
+Because named domains such as “HCV IRES domain II” are not explicitly labeled by dot bracket alone, Element mode is a reproducible topology-based approximation. If a desired biological domain boundary differs from the topology, it cannot be inferred unambiguously from `SS_cons`; an explicit named-domain annotation would be required.
+
 ## 9. Color modes
 
 ### 9.1 Stem
 
-Every stem receives a deterministic color. The same color is used for both arms in the alignment, overview, pinned reference, consensus where applicable, and vector export.
+Every insertion-tolerant stem receives a deterministic color. The same color is used for both arms in the alignment, overview, pinned reference, consensus where applicable, and vector export. Bulges totaling up to two skipped arm columns remain the same color; large loops, branches, and different WUSS classes remain distinct.
 
 For sequence rows, a structural cell is colored only when that sequence forms AU, UA, GC, CG, GU, or UG at the complete pair. A defined pair that is gapped, ambiguous, or noncanonical is left uncolored. Structure annotation rows themselves retain the stem colors.
 
 This makes violations conspicuous without assigning them a misleading stem color.
 
-### 9.2 Pair variation
+### 9.2 Element
+
+Element mode uses the same canonical-pair rule as Stem mode but colors every stem in one topology-derived major element identically. Nested branches and crossing pseudoknot stems are joined by overlapping spans; disjoint structural elements are not. This is useful for scanning domain-scale architecture while retaining Stem mode for fine stack boundaries.
+
+### 9.3 Pair variation
 
 Pair variation is descriptive and is **not** a statistical covariation analysis.
 
@@ -357,11 +389,11 @@ For each structural pair, MATER finds the most frequent canonical occupied pair 
 
 The classification uses observed counts, not GSC weights, a phylogenetic model, E-values, or R-scape statistics. “Two-sided change” is therefore not evidence by itself for statistically significant covariation.
 
-### 9.3 Residue
+### 9.4 Residue
 
 A, C, G, and U/T receive user-defined colors. Open **Base colors** to customize them. Colors persist in macOS user preferences and are reused in later sessions and exports. Ambiguity symbols and gaps remain uncolored.
 
-### 9.4 None
+### 9.5 None
 
 Disables biological cell coloring while retaining selection, change, threshold, and validation indicators.
 
@@ -562,22 +594,34 @@ For the selected sequence and stem, MATER tests:
 - One-column shifts of the selected stem arm left and right
 - Linked, opposite-direction shifts of both arms when enabled
 - Opening or closing a gap at each stem endpoint and one column on either side
+- Coordinated shifts of both complete helix-arm windows, including up to three neighboring unpaired columns on each side
+- Bounded redistribution of the existing residues and gaps within those windows, while retaining residue order and limiting each residue to a three-column displacement
 
-Every candidate must preserve the exact ungapped sequence.
+An arm window ends early if it encounters a paired column belonging to another stem. If the two expanded arm windows would overlap, MATER divides the intervening region between them. The broader window search is enabled only when each arm window contains at least half as many residues as the annotated helix has pairs, rounded up. This occupancy safeguard prevents a missing arm from being pulled into existence merely to satisfy `SS_cons`; a gapped stem may be a real structural subtype.
+
+The redistribution search uses a bounded beam of at most 256 partial arrangements and retains at most 24 complete arrangements per window. These limits make the preview responsive while allowing multi-column changes that the original one-gap-at-a-time search could not find. Every candidate preserves alignment width, residue order, and the exact ungapped sequence.
 
 ### 13.3 Acceptance and ranking
 
-A candidate is shown if it improves the selected stem by one of these tests:
+A candidate is rejected if, over all annotated pairs in that sequence, it loses a canonical pair or creates an additional definite noncanonical pair. Gaps and ambiguity are neutral for this structural safety test. A surviving candidate is shown if it does either of the following:
 
-1. More canonical observations; or
-2. The same canonical count with fewer noncanonical observations; or
-3. The same canonical count with fewer gapped observations.
+1. Increases canonical observations or decreases definite noncanonical observations in the selected stem; or
+2. Improves the neighboring unpaired-column profile by at least 0.20 natural-log units without worsening the structural safety measures.
 
-Suggestions are ranked by canonical gain, then fewer noncanonical observations, then fewer gaps, with linked candidates preferred as a final tie-breaker.
+The neighboring profile is leave-one-out: the sequence being edited is excluded, so it cannot vote for its own current placement. MATER uses the same GSC sequence weights used for calculated consensus. At each unpaired neighborhood column, A, C, G, U/T, and gap are the five modeled symbols; ambiguity characters are excluded. For symbol `b` at column `i`:
+
+```text
+profile contribution(b,i) = ln((weighted_count(b,i) + 0.25)
+                               / (weighted_total(i) + 5 × 0.25))
+```
+
+The displayed profile change is the sum of those contributions after the candidate minus before it. Modeling a gap in this local sequence profile helps place insertions consistently; it does **not** make a gapped structural pair a violation or require a missing stem to become occupied.
+
+Suggestions are ranked by canonical gain in the selected sequence, then canonical gain across that stem, fewer definite noncanonical observations, larger profile gain, and finally smaller total residue displacement. Linked candidates are preferred only after those comparisons.
 
 ### 13.4 Preview and apply
 
-The preview shows left and right stem arms before/after, canonical/noncanonical/gap changes for the selected sequence, and the selected stem's canonical count over the whole alignment.
+The preview shows left and right stem arms before/after, canonical/noncanonical changes for the selected sequence, the selected stem's canonical count over the whole alignment, the neighboring profile change, and total residue displacement.
 
 Applying a suggestion:
 
@@ -590,13 +634,13 @@ Review every suggestion biologically. Local canonical-pair improvement does not 
 
 ### 13.5 Automatic whole-alignment refinement
 
-**Auto-refine copy** performs the same class of width-preserving, gap-only operations without asking for approval after each proposal. It is intended for quickly generating a conservative candidate alignment that can be compared with the original.
+**Auto-refine copy** performs conservative width-preserving, gap-only operations without asking for approval after each proposal. It is intended for quickly generating a candidate alignment that can be compared with the original.
 
 When the current document has a file location, one click:
 
 1. Scans every sequence row, every stem in every `SS_cons*` layer, and both arms of each stem.
-2. Tests one-column arm shifts, optional linked-arm shifts, and nearby gap opening/closing operations.
-3. Applies the strongest safe edit for each sequence, recalculating against the already-refined working copy rather than applying stale proposals.
+2. Tests one-column arm shifts, optional linked-arm shifts, nearby gap opening/closing operations, and coordinated complete-arm window shifts across each helix and its up-to-three-column flanks.
+3. Applies the strongest safe edit, then immediately rescans that sequence so several necessary gap moves can accumulate in one pass rather than relying on stale proposals.
 4. Repeats complete passes until no supported move can improve the structural objective, or until the 100-pass safety limit is reached.
 5. Writes a new file beside the source as `NAME-MATER-refined.sto` and opens it. If that name exists, MATER adds `-2`, `-3`, and so on; it never overwrites the source or an earlier result.
 
@@ -609,11 +653,67 @@ Every automatically accepted edit must satisfy all of these conditions:
 - The alignment-wide number of definite noncanonical observations does not increase.
 - At least one of those two structural measures improves.
 
-Gap and ambiguity counts are used only as tie-breakers. They are not automatic failure terms because missing stems, fragments, ambiguity, and genuine structural subtypes may be biologically valid. `SS_cons*` annotations, alignment width, sequence names, and Stockholm metadata are not rewritten.
+Gap and ambiguity counts are descriptive only and are not optimization terms. Missing stems, fragments, ambiguity, and genuine structural subtypes may be biologically valid. The leave-one-out neighboring profile is used only to choose among structurally improving automatic candidates; profile gain alone cannot cause an automatic edit. `SS_cons*` annotations, alignment width, sequence names, and Stockholm metadata are not rewritten.
 
-Here, **fully refined** means a local fixed point for MATER's supported adjacent gap moves under the stated safety rule. It does not mean a globally optimal multiple-sequence alignment, a newly inferred structure, or proof that every accepted register is biologically correct. The original file is deliberately retained so the two alignments can be compared.
+Here, **fully refined** means a local fixed point for MATER's supported one-column and coordinated helix-arm window moves under the stated safety rule. Automatic mode iterates one-column complete-arm shifts; the previewed manual search additionally considers the larger bounded residue/gap redistribution set described above. It does not mean a globally optimal multiple-sequence alignment, a newly inferred structure, or proof that every accepted register is biologically correct. The original file is deliberately retained so the two alignments can be compared.
 
-## 14. Large-alignment overview, filters, and sorting
+## 14. Optional R-scape analysis
+
+MATER can run an external R-scape installation to test the current annotated structure for statistically significant covariation. It uses R-scape's evaluate-given-structure mode; it does not run CaCoFold or replace the current `SS_cons*` annotations.
+
+### 14.1 Requirements and executable discovery
+
+Install R-scape separately, including the R2R and Perl components needed for schematic rendering. Click **Run R-scape** in MATER's main toolbar. MATER checks a previously selected location, its own process `PATH`, and common Homebrew/local binary folders for `R-scape` or `r-scape`.
+
+An app opened from Finder does not normally inherit the customized `PATH` used by an interactive Terminal shell. Therefore, `R-scape -h` can work in Terminal even when automatic app discovery fails. This is expected macOS behavior, not evidence that the R-scape binary itself is broken.
+
+If no executable is found, MATER opens a nonfatal results panel explaining the problem. Click **Locate R-scape…** and select any of these:
+
+- The installed `bin/R-scape` executable
+- The distribution's `bin` folder
+- The top-level R-scape installation folder
+- A development `src/R-scape` executable; MATER will prefer the sibling installed `bin/R-scape` when it exists
+
+The installed `bin` copy is preferred when it sits beside an executable R2R companion. MATER remembers the resolved path for later sessions. The alignment remains open and editable if R-scape is absent, invalid, or fails.
+
+### 14.2 What MATER runs
+
+The current in-memory alignment—not merely the last saved version—is written to an exact input snapshot. Validation errors must be fixed and at least one recognized `SS_cons*` pair must exist. MATER then invokes the equivalent of:
+
+```text
+R-scape -s --onemsa --outdir TEMPORARY_DIRECTORY --outname NAME INPUT.sto
+```
+
+`-s` requests R-scape's two-set evaluation of the given structure. `--onemsa` limits the invocation to the one alignment MATER submitted. All current WUSS structure layers, including pseudoknots in `SS_cons*`, remain in the submitted Stockholm snapshot. MATER prepends the selected executable's directory to `PATH` so companion programs from the same installation can be found.
+
+### 14.3 Results panel and retained files
+
+The R-scape panel is part of the MATER document window. Its PDFKit preview supports normal PDF scrolling, panning, and zooming. Close the panel at any time with its × button; closing it does not cancel a running analysis, and **R-scape results** reopens it. Use **Cancel** to terminate the active R-scape process.
+
+For a saved alignment, MATER creates a unique sibling folder named `NAME-MATER-R-scape`, adding `-2`, `-3`, and so on when necessary. An unsaved document prompts for a parent folder. The retained files are:
+
+| File | Meaning |
+|---|---|
+| `NAME-R-scape-input.sto` | Exact MATER snapshot supplied to R-scape |
+| `NAME-R-scape.cov` | Pairwise statistically significant results at R-scape's selected target E-value; `*` marks a pair in the given structure |
+| `NAME-R-scape.sorted.cov` | The same significant-pair table sorted by score, when produced |
+| `NAME-R-scape.power` | Given-structure pairs, substitutions, estimated detection power, and expected/observed covarying-pair summary |
+| `NAME-R-scape.R2R.sto.pdf` | R2R schematic shown in MATER's zoomable preview |
+| `NAME-R-scape.R2R.sto.svg` | Editable vector version of the R2R schematic, when produced |
+| `NAME-R-scape.original.sto` | R-scape's retained/normalized Stockholm input, when produced |
+| `NAME-R-scape.log` | Exact command plus captured standard output and error |
+
+Buttons below the preview open the full PDF, pair table, power table, or results folder. MATER accepts a run as usable when the `.cov` table and R2R PDF exist. Some R-scape installations report optional RFview or gnuplot warnings after producing those required outputs; MATER retains the results and surfaces a warning linked to the log rather than discarding valid files.
+
+### 14.4 Summary values and interpretation
+
+MATER counts a `.cov` data row as one significant pair and counts rows beginning with `*` as significant pairs belonging to the submitted structure. From `.power`, it reports the number of annotated pairs and R-scape's expected and observed numbers of covarying pairs. These values are parsed summaries of R-scape output, not statistics recalculated by MATER.
+
+A lack of significant pairs is not evidence that a helix is false when the alignment has little detection power, too few substitutions, excessive redundancy, or incomplete occupancy. Consult `.power`, the R-scape user guide, and the phylogenetic context. Conversely, a significant pair supports covariation beyond R-scape's phylogenetic expectation but does not by itself validate every sequence register or every pair in the helix.
+
+The in-editor **Pair variation** colors remain descriptive regardless of whether R-scape has been run; MATER does not currently overlay R-scape E-values on alignment cells.
+
+## 15. Large-alignment overview, filters, and sorting
 
 The bottom overview shares one horizontal coordinate system across four tracks:
 
@@ -628,9 +728,9 @@ Click or drag to navigate. Clicking a paired block selects a structural column a
 
 For a very large alignment, combine the overview with inspector filtering, sequence sorting, the pinned reference, and search rather than repeatedly scrolling end to end.
 
-## 15. Search and problem navigation
+## 16. Search and problem navigation
 
-### 15.1 Search syntax
+### 16.1 Search syntax
 
 The search field accepts:
 
@@ -643,7 +743,7 @@ Motif search examines the aligned character string, including any gap characters
 
 Use **Command-F** to focus search and Return to find the next match.
 
-### 15.2 Navigate menu
+### 16.2 Navigate menu
 
 - **Next problem:** cycles through all generated navigation problems.
 - **Next noncanonical pair:** occupied pair outside AU/UA/GC/CG/GU/UG. Gapped pairs are skipped; ambiguity is presently treated as noncanonical by this navigation command.
@@ -653,22 +753,22 @@ Use **Command-F** to focus search and Return to find the next match.
 
 Navigation wraps to the first matching problem after reaching the end.
 
-## 16. Change tracking and recovery
+## 17. Change tracking and recovery
 
-### 16.1 Baseline comparison
+### 17.1 Baseline comparison
 
 The opened file is the baseline for the document session. The **Changes** menu reports changed cells and rows, separated into sequence and annotation cells.
 
 Enable **Highlight changes from opened file** to show an orange corner marker on changed cells.
 
-### 16.2 Reverting
+### 17.2 Reverting
 
 - **Revert selected region:** restores matching baseline cells within the selected rows and columns.
 - **Revert selected rows:** restores complete matching baseline rows only when their original width equals the current alignment width.
 
 Reversion is undoable. It can repair an integrity difference while Alignment Integrity mode remains locked.
 
-### 16.3 Recovery snapshots
+### 17.3 Recovery snapshots
 
 MATER keeps rolling snapshots under:
 
@@ -682,7 +782,7 @@ While locked, a recovery that would alter ungapped sequence data is rejected.
 
 Recovery is a convenience, not a substitute for versioned source files or laboratory data management.
 
-## 17. PDF and SVG export
+## 18. PDF and SVG export
 
 MATER exports a vector rendering of the alignment using the current:
 
@@ -703,13 +803,13 @@ Export options include:
 - Selected columns only
 - Tiled landscape Letter pages for oversized PDFs
 
-The structural inspector and compact bottom overview are not part of alignment exports. Entropy and gap plots can be exported; the compact occupied-pair violation heatmap is not currently exported.
+The structural inspector and compact bottom overview are not part of alignment exports. Entropy and gap plots can be exported. The compact occupied-pair violation heatmap is deliberately editor-only: it is a navigation diagnostic aggregated from the current `SS_cons*` layers, not an alignment annotation intended for a figure.
 
 For a discontinuous pair/stem selection, **selected columns only** exports the continuous interval from the first through last selected column, including intervening columns.
 
 SVG is convenient for Illustrator, Inkscape, Affinity Designer, and web figures. PDF is convenient for direct sharing and tiled printing.
 
-## 18. Validation and saving
+## 19. Validation and saving
 
 MATER continuously checks:
 
@@ -726,7 +826,7 @@ The alignment width is the most common sequence-row length; ties favor the small
 
 When Alignment Integrity mode is locked, save performs the additional baseline sequence check described in Section 10.
 
-## 19. Keyboard and mouse reference
+## 20. Keyboard and mouse reference
 
 | Action | Shortcut/gesture |
 |---|---|
@@ -750,22 +850,22 @@ When Alignment Integrity mode is locked, save performs the additional baseline s
 | Highlight full annotation column | Click/drag `SS_cons*`, `RF`, `cons`, or calculated consensus |
 | Navigate overview | Click/drag bottom overview |
 
-## 20. Recommended workflows
+## 21. Recommended workflows
 
-### 20.1 Manually refine a stem
+### 21.1 Manually refine a stem
 
 1. Duplicate and open the alignment.
 2. Keep Alignment Integrity mode locked.
 3. Select a stem in the overview or canvas.
 4. Inspect canonical and noncanonical rates; interpret gaps separately.
 5. Filter to pair violations or gaps depending on the biological question.
-6. Select an outlier sequence and compare Stem, Pair variation, and Residue modes.
+6. Select an outlier sequence and compare Stem, Element, Pair variation, and Residue modes.
 7. Move its stem arm with Option-arrow, Open gap, or Close gap.
 8. If appropriate, preview **Suggest fixes**.
 9. Recheck neighboring columns, entropy, gap frequency, and subtype context.
 10. Save under a versioned filename and reopen it once before adopting it.
 
-### 20.2 Work with structural subtypes
+### 21.2 Work with structural subtypes
 
 1. Use the teal gap track to identify occupancy boundaries.
 2. Remember that gapped pair observations do not contribute to red violations.
@@ -773,7 +873,7 @@ When Alignment Integrity mode is locked, save performs the additional baseline s
 4. Do not interpret absence as misalignment without subtype or phylogenetic context.
 5. Use **Pair violations** only for occupied, unambiguous convention-breaking observations.
 
-### 20.3 Edit a pseudoknot
+### 21.3 Edit a pseudoknot
 
 1. Confirm the existing WUSS class and crossing partners.
 2. Select partner columns by double-click or inspector.
@@ -781,16 +881,16 @@ When Alignment Integrity mode is locked, save performs the additional baseline s
 4. Keep linked arm shifting enabled only when both arms should remain registered together.
 5. Export a small SVG after editing and visually confirm the affected colored blocks and rows.
 
-### 20.4 Prepare a figure
+### 21.4 Prepare a figure
 
 1. Hide PP rows if they distract from the sequence comparison.
-2. Select Stem, Pair variation, or Residue mode according to the message of the figure.
+2. Select Stem, Element, Pair variation, or Residue mode according to the message of the figure.
 3. Set a readable font size and name width.
 4. Decide whether consensus, entropy, gap frequency, and grid are needed.
 5. Export SVG for editing or tiled PDF for direct review.
 6. In a caption, describe Pair variation as descriptive unless a separate statistical covariation analysis was performed.
 
-## 21. Rfam example alignments
+## 22. Rfam example alignments
 
 MATER includes four focused Rfam teaching alignments in `Examples/Rfam`:
 
@@ -803,7 +903,7 @@ MATER includes four focused Rfam teaching alignments in `Examples/Rfam`:
 
 All four files are complete, unmodified Rfam SEED downloads. The selenocysteine tRNA example contains 109 sequences, slightly above the initial sub-100 target but compact enough for routine testing and preferable to a sampled general-tRNA alignment. See [`Examples/Rfam/README.md`](../Examples/Rfam/README.md) for provenance and family links. Rfam describes SEED alignments as hand-curated representative family alignments and distributes its data under CC0.
 
-## 22. Troubleshooting and frequently asked questions
+## 23. Troubleshooting and frequently asked questions
 
 ### Why are defined stem cells uncolored in Stem mode?
 
@@ -831,11 +931,11 @@ A Quality Inspector filter is active. Choose **Show all sequences** or set Filte
 
 ### Why is Suggest fixes disabled or empty?
 
-Select a sequence cell in a recognized stem. An empty result means the local one-column and nearby gap-transfer search found no integrity-safe improvement under its ranking rules. It does not mean the alignment is optimal.
+Select a sequence cell in a recognized stem. An empty result means the one-column, linked-arm, and bounded helix-neighborhood search found no integrity-safe structural or profile improvement under its rules. A largely unoccupied arm is intentionally excluded from broad helix optimization because it may represent a structural subtype. An empty result does not mean the alignment is globally optimal.
 
 ### What does Auto-refine copy change?
 
-Only gap placement in sequence rows. It does not change ungapped residues, row order, structure annotations, alignment width, or metadata. The original document remains open and untouched; the refined result is written and opened as a separate file. A result with zero edits means no supported move satisfied the automatic safety rule, not that the alignment is biologically perfect.
+Only gap placement in sequence rows. It can coordinate both complete arms of a helix and their up-to-three-column flanks, but it does not change ungapped residues, row order, structure annotations, alignment width, or metadata. Gapped structural variants are not penalized. The original document remains open and untouched; the refined result is written and opened as a separate file. A result with zero edits means no supported move satisfied the automatic safety rule, not that the alignment is biologically perfect.
 
 ### Why will a shift not move?
 
@@ -857,34 +957,47 @@ The alpha is ad-hoc signed and not notarized. Right-click the app and choose Ope
 
 Prefer Rfam SEED rather than FULL alignments for interactive curation. Hide the inspector, compact overview, full-height plots, change highlighting, or PP rows when they are not needed. Filter to a selected stem's relevant sequences. If a reproducible alignment still hangs, report its dimensions and a sanitized example.
 
+### Why did a wrapped Stockholm file previously duplicate rows or crash?
+
+Version 0.8 joins repeated interleaved segments by sequence name, `#=GC` tag, or `#=GR` sequence/tag before the editor builds its row model. Saving intentionally writes the normalized single-block form. If a wrapped file still fails, check whether it actually contains more than one complete Stockholm alignment or reuses one sequence name for biologically distinct rows; those cases are outside the one-alignment/unique-name assumption.
+
+### Why do two parts of a helix have different Stem colors?
+
+Stem mode keeps immediately nested pairs together across at most two total bulged columns. A larger internal loop, branch, disjoint helix, different WUSS class, or different `SS_cons*` row defines another stem. Choose **Element** to give nested/overlapping or crossing stems the same topology-derived major-element color. Dot bracket does not encode arbitrary named domains, so an exact laboratory-specific domain boundary cannot always be inferred.
+
 ### Does MATER alter metadata it does not display?
 
 Recognized metadata and unknown raw lines are preserved. Alignment-wide column insertion/removal changes parsed aligned sequence/`#=GC`/`#=GR` rows of the current width but does not rewrite free-text metadata. Always inspect a saved diff during alpha use.
 
 ### Can MATER test statistically significant covariation?
 
-No. Use an appropriate external tool such as R-scape for statistical support. MATER's Pair variation display is an observed-pair comparison intended for curation.
+Yes, through a separately installed R-scape. Click **Run R-scape** to use its evaluate-given-structure (`-s`) test and view the R2R PDF in MATER. If R-scape is not in `PATH`, use **Locate R-scape…**. MATER's Pair variation display remains an observed-pair comparison and must not be interpreted as a significance test.
 
-## 23. Current limitations
+### Why does Run R-scape say the program is missing?
 
-Version 0.7.0 alpha 1 intentionally has a bounded scope:
+MATER does not bundle R-scape, and Finder does not inherit Terminal's customized `PATH`. Install R-scape separately, then click **Locate R-scape…** and choose its installed executable, `bin` folder, or installation folder. If you choose `src/R-scape`, MATER searches the sibling `bin` folder and prefers that installed copy beside R2R. If the statistical table is produced but the drawing is missing, check that the installation's R2R and Perl components are executable. The run log in the results folder contains the exact command and diagnostics.
+
+## 24. Current limitations
+
+Version 0.8.0 alpha 1 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
-- One Stockholm alignment and one complete segment per row; no interleaved block concatenation
+- One Stockholm alignment per file; wrapped/interleaved rows are accepted but saved in normalized single-block form
 - No de novo multiple-sequence alignment or profile alignment
 - No structure prediction or thermodynamic folding
-- No statistical covariation significance calculation
+- Statistical covariation analysis requires a separate compatible R-scape/R2R installation; MATER does not bundle, update, or reimplement it
 - No covariance-model building/searching
 - No automatic sequence addition, removal, renaming, or phylogenetic tree editor
-- Suggested and automatic edits use iterative local, one-column, gap-only candidates rather than a global realignment algorithm
+- Suggested and automatic edits use bounded helix-plus-three-column gap rearrangements and iterative local moves rather than a global multiple-sequence realignment algorithm
 - GUI pair creation provides four pseudoknot layers beyond primary, although more existing WUSS letter classes are parsed
-- Compact structural-problem heatmap is not yet included in PDF/SVG export
+- Major elements are inferred from overlapping/crossing topology; arbitrary named biological-domain boundaries are not encoded by dot bracket and cannot be assigned explicitly in this release
+- Compact structural-problem heatmap is intentionally editor-only and is not included in alignment PDF/SVG export
 - No built-in automatic updater or crash-reporting service
 
 These limitations should be considered when interpreting a “clean” inspector or accepting a suggestion.
 
-## 24. Reporting a useful alpha issue
+## 25. Reporting a useful alpha issue
 
 Report bugs in the private GitHub repository or through the agreed alpha channel. Include:
 
@@ -908,7 +1021,7 @@ Treat these as highest priority:
 - Undo/redo producing a different alignment than expected
 - Incorrect pair or pseudoknot interpretation
 
-## 25. Building from source
+## 26. Building from source
 
 Requirements are the current Xcode Command Line Tools and Swift 5.10-compatible tooling.
 
@@ -933,7 +1046,7 @@ The universal ad-hoc-signed app is written to:
 dist/MATER.app
 ```
 
-## 26. Glossary
+## 27. Glossary
 
 **Alignment Integrity** — MATER's protection of ordered exact ungapped sequence strings relative to the opened file.
 
@@ -945,9 +1058,13 @@ dist/MATER.app
 
 **Entropy** — Unweighted Shannon entropy of canonical nucleotide identities at a column, excluding gaps and ambiguity.
 
+**Element** — A topology-derived connected component of overlapping, nested, or crossing stems. It is not an explicit biological-domain label.
+
 **Evaluable pair** — Both partners are occupied and unambiguous A/C/G/U.
 
 **GSC weighting** — A tree-based sequence-weighting approach that reduces the influence of closely redundant sequences.
+
+**Interleaved Stockholm** — A Stockholm alignment wrapped into repeated row blocks. MATER joins repeated logical rows and saves normalized single-block form.
 
 **Occupied pair** — Neither partner is a gap; it may still be ambiguous.
 
@@ -959,30 +1076,31 @@ dist/MATER.app
 
 **SEED alignment** — Rfam's curated representative alignment used to construct a family covariance model.
 
-**Stem** — A contiguous run of nested pairs grouped by MATER.
+**Stem** — An insertion-tolerant run of nested pairs in one structure row and WUSS opener class; MATER permits up to two total skipped arm columns before beginning a new stem.
 
 **Stockholm** — A multiple-sequence alignment format supporting file-, sequence-, column-, and residue-level annotations.
 
 **WUSS** — Washington University Secondary Structure notation, including bracket and letter pairs used in Stockholm structure annotations.
 
-## 27. Methods summary and references
+## 28. Methods summary and references
 
-### 27.1 Reproducible methods description
+### 28.1 Reproducible methods description
 
 A concise methods statement for work performed with this alpha is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.7.0-alpha.1. Ungapped sequence integrity was protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.8.0-alpha.1. Ungapped sequence integrity was protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
-If MATER materially contributed to a published analysis, also state which external method, if any, was used to test covariation or structural support.
+If the optional integration was used, also report the independently installed R-scape version, its evaluate-given-structure mode, and the retained command/log and output files. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
 
-### 27.2 Software citation before a formal paper
+### 28.2 Software citation before a formal paper
 
 Until a formal MATER citation is available, cite the software name, full expansion, version, repository URL, and access date. Preserve the exact version or release archive used for the analysis.
 
-### 27.3 References
+### 28.3 References
 
 - Nawrocki EP and Eddy SR. Infernal 1.1: 100-fold faster RNA homology searches. *Bioinformatics* 29:2933–2935 (2013). See the [Infernal User's Guide](http://eddylab.org/infernal/Userguide.pdf) for Stockholm/WUSS and scientific-software manual conventions.
 - Weinberg Z and Breaker RR. R2R—software to speed the depiction of aesthetic consensus RNA secondary structures. *BMC Bioinformatics* 12:3 (2011). [Article and supplementary manual](https://pmc.ncbi.nlm.nih.gov/articles/PMC3023696/).
+- Rivas E, Clements J, and Eddy SR. A statistical test for conserved RNA structure shows lack of evidence for structure in lncRNAs. *Nature Methods* 14:45–48 (2017). See the [R-scape software and user guide](http://eddylab.org/R-scape/).
 - R2R standard consensus command: `--GSC-weighted-consensus ... 3 0.97 0.9 0.75 4 0.97 0.9 0.75 0.5 0.1`. See the [R2R 1.0.7 downloads](https://sourceforge.net/projects/weinberg-r2r/files/).
 - Rfam documentation: [SEED and FULL alignments](https://docs.rfam.org/en/latest/faq.html#what-are-seed-and-full-alignments), [family alignment API](https://docs.rfam.org/en/latest/api.html#alignments), and [building Rfam families](https://docs.rfam.org/en/latest/building-families.html).
 

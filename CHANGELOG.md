@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0-alpha.1 — 2026-08-31
+
+- Extend previewed refinement across both complete helix arms and up to three neighboring unpaired columns, using bounded gap redistribution and a leave-one-out GSC-weighted sequence profile.
+- Extend **Auto-refine copy** with coordinated helix-arm window moves that iterate to a local structural fixed point while preserving alignment width and every ungapped sequence.
+- Treat gapped or missing stems as possible structural variants: gaps remain descriptive and never count as pairing violations or an automatic-refinement objective.
+- Add optional R-scape integration in evaluate-given-structure (`-s`) mode, including safe PATH discovery, a remembered manual executable location, and clear non-crashing errors when R-scape is unavailable.
+- Retain the exact analyzed Stockholm snapshot, pairwise `.cov` table, `.power` table, R2R PDF/SVG drawing, and run log in a uniquely named results folder.
+- Add a closable in-window PDFKit panel with a zoomable R2R drawing, run summary, power guidance, cancellation, and direct access to result files.
+- Normalize interleaved/wrapped Stockholm blocks into complete logical sequence, `#=GC`, and `#=GR` rows on open, preserving raw metadata/comments and preventing duplicate-row crashes.
+- Keep immediately nested pairs in one stem across up to two total bulged columns, while retaining large internal loops, branches, disjoint helices, and different WUSS classes as distinct stems.
+- Add **Element** coloring that derives major structural elements as connected components of nested/overlapping and crossing stem spans, including multi-stem pseudoknot networks.
+- Resolve remembered `src/R-scape` selections and selected `bin`/installation folders to the installed `bin/R-scape` beside R2R; explain Finder-versus-Terminal PATH behavior.
+- Keep the compact structural-problem heatmap editor-only and intentionally exclude it from alignment PDF/SVG export.
+
 ## 0.7.0-alpha.1 — 2026-08-30
 
 - Add one-click **Auto-refine copy** for iterative, alignment-wide gap-only structural refinement without per-edit approval.

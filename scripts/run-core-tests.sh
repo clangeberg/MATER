@@ -19,6 +19,7 @@ swiftc \
   "$project_dir/Sources/MATER/StockholmModel.swift" \
   "$project_dir/Sources/MATER/StructureModel.swift" \
   "$project_dir/Sources/MATER/CurationAnalysis.swift" \
+  "$project_dir/Sources/MATER/RScapeRunner.swift" \
   "$project_dir/Sources/MATER/AlignmentNavigation.swift" \
   "$project_dir/Tests/CoreTestMain.swift" \
   -o "$test_binary"

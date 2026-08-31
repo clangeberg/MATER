@@ -4,9 +4,11 @@ import Foundation
 struct CoreTestMain {
     private static var failures = 0
 
-    static func main() {
+    static func main() async {
         roundTripPreservesStockholmText()
+        joinsInterleavedStockholmBlocks()
         parsesCrossingPseudoknotLayers()
+        groupsBulgedStemsAndMajorElements()
         recognizesCanonicalBasePairs()
         covariationClassification()
         calculatesColumnEntropy()
@@ -14,6 +16,10 @@ struct CoreTestMain {
         verifiesSequenceIntegrity()
         calculatesStructuralQuality()
         suggestsSafeStemImprovements()
+        optimizesCompleteHelixWindows()
+        leavesUnoccupiedStructuralVariantsAlone()
+        parsesRScapeOutputsAndHandlesMissingExecutable()
+        await runsRScapeIntegrationWhenRequested()
         refinesEntireAlignmentWithoutChangingSequences()
         alignmentEditingKeepsRowsSynchronized()
         advancedGapAndRectangularEditing()
@@ -35,7 +41,13 @@ struct CoreTestMain {
         do {
             let source = try String(contentsOfFile: path, encoding: .utf8)
             let file = StockholmParser.parse(source)
-            expect(file.rendered == source, "round-trip changed \(path)")
+            if file.normalizedInterleavedSegmentCount == 0 {
+                expect(file.rendered == source, "round-trip changed \(path)")
+            } else {
+                let reparsed = StockholmParser.parse(file.rendered)
+                expect(reparsed.rendered == file.rendered, "interleaved normalization was not idempotent for \(path)")
+                expect(reparsed.normalizedInterleavedSegmentCount == 0, "normalized output remained interleaved for \(path)")
+            }
             let errors = file.validationIssues.filter { $0.severity == .error }
             expect(errors.isEmpty, "\(path): \(errors.map(\.message).joined(separator: "; "))")
             print("Audited \(URL(fileURLWithPath: path).lastPathComponent): \(file.sequenceRows.count) sequences × \(file.alignmentLength) columns, \(file.structureRows.count) structure layer(s)")
@@ -81,6 +93,41 @@ struct CoreTestMain {
         expect(file.validationIssues.isEmpty, "valid fixture reported issues")
     }
 
+    private static func joinsInterleavedStockholmBlocks() {
+        let file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        #=GF ID wrapped
+        seq1          GCAU
+        seq2          GU-U
+        #=GR seq1 PP  9988
+        #=GC SS_cons  <<>>
+
+        # a preserved block comment
+        seq1          AACG
+        seq2          AA-G
+        #=GR seq1 PP  7766
+        #=GC SS_cons  (())
+        //
+        """)
+        expect(file.sequenceRows.count == 2, "interleaved sequences were not collapsed into logical rows")
+        expect(file.alignmentLength == 8, "interleaved segment widths were not concatenated")
+        expect(file.records[file.sequenceRows[0].recordIndex].aligned == "GCAUAACG", "first wrapped sequence was not joined")
+        expect(file.records[file.sequenceRows[1].recordIndex].aligned == "GU-UAA-G", "second wrapped sequence was not joined")
+        let structureRows = file.structureRows
+        expect(structureRows.count == 1, "wrapped SS_cons rows were not joined")
+        if let structureRow = structureRows.first {
+            expect(file.records[structureRow.recordIndex].aligned == "<<>>(())", "wrapped SS_cons content was not joined")
+        }
+        let ppRows = file.rows.filter(\.kind.isPosteriorProbability)
+        expect(ppRows.count == 1, "wrapped #=GR rows were not joined")
+        if let ppRow = ppRows.first {
+            expect(file.records[ppRow.recordIndex].aligned == "99887766", "wrapped #=GR content was not joined")
+        }
+        expect(file.normalizedInterleavedSegmentCount == 4, "interleaved normalization count")
+        expect(file.rendered.contains("# a preserved block comment"), "interleaved raw comments were not preserved")
+        expect(file.validationIssues.allSatisfy { $0.severity != .error }, "normalized interleaved file has validation errors")
+    }
+
     private static func parsesCrossingPseudoknotLayers() {
         let text = """
         # STOCKHOLM 1.0
@@ -97,6 +144,33 @@ struct CoreTestMain {
         expect(pairs.contains { $0.left == 2 && $0.right == 9 && $0.isPseudoknot }, "crossing pseudoknot missing")
         expect(Set(pairs.map(\.stem)).count == 2, "stacked pairs were not grouped into two stems")
         expect(file.validationIssues.isEmpty, "pseudoknot fixture reported issues")
+    }
+
+    private static func groupsBulgedStemsAndMajorElements() {
+        func file(with structure: String) -> StockholmFile {
+            StockholmParser.parse("""
+            # STOCKHOLM 1.0
+            one             \(String(repeating: "A", count: structure.count))
+            #=GC SS_cons    \(structure)
+            //
+            """)
+        }
+
+        let bulgedPairs = StructureParser.pairs(in: file(with: "(((.....)).)"))
+        expect(bulgedPairs.count == 3, "bulged stem pair count")
+        expect(Set(bulgedPairs.map(\.stem)).count == 1, "a one-column arm bulge split one helix into multiple stems")
+
+        let explicit = StructureParser.pairs(in: file(with: "((((([[[[[.....]]]]]...{{{{{.....}}}}})))))"))
+        let ordinary = StructureParser.pairs(in: file(with: "((((((((((.....)))))...(((((.....))))))))))"))
+        expect(Set(explicit.map(\.stem)).count == 3, "explicit nested WUSS classes did not produce three stacks")
+        expect(Set(ordinary.map(\.stem)).count == 3, "ordinary dot-bracket topology did not preserve three stacks")
+        expect(Set(explicit.map(\.element)).count == 1, "nested explicit stacks were not joined as one major element")
+        expect(Set(ordinary.map(\.element)).count == 1, "nested ordinary stacks were not joined as one major element")
+
+        let knotPairs = StructureParser.pairs(in: file(with: "AA..BB..CC..aa..bb..cc"))
+        expect(Set(knotPairs.map(\.stem)).count == 3, "crossing K/L/M-style classes were not retained as separate stems")
+        expect(Set(knotPairs.map(\.element)).count == 1, "crossing pseudoknot stems were not joined into one major element")
+        expect(knotPairs.allSatisfy(\.isPseudoknot), "lettered pseudoknot pairs lost their pseudoknot identity")
     }
 
     private static func covariationClassification() {
@@ -267,6 +341,131 @@ struct CoreTestMain {
         var proposed = file
         proposed.records[suggestion.recordIndex].aligned = suggestion.proposedAligned
         expect(SequenceIntegrityAnalyzer.preservesSequences(from: file, to: proposed), "suggestion changed the ungapped sequence")
+    }
+
+    private static func optimizesCompleteHelixWindows() {
+        let file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        needs_window -AU----AU---
+        aligned      --AU----AU--
+        #=GC SS_cons ..<<....>>..
+        //
+        """)
+        let suggestions = StemEditSuggester.suggestions(in: file, modelRow: 0, column: 2, preferLinked: true)
+        guard let suggestion = suggestions.first(where: {
+            $0.operationTitle.contains("Optimize helix") && $0.proposedAligned == "--AU----AU--"
+        }) else {
+            expect(false, "complete helix-window optimization was not suggested")
+            return
+        }
+        expect(suggestion.after.canonical == 2, "helix-window optimization did not recover both pairs")
+        expect(suggestion.after.noncanonical == 0, "helix-window optimization retained a definite violation")
+        expect(suggestion.residueDisplacement >= 2, "helix-window optimization did not report its multi-residue move")
+        var proposed = file
+        proposed.records[suggestion.recordIndex].aligned = suggestion.proposedAligned
+        expect(SequenceIntegrityAnalyzer.preservesSequences(from: file, to: proposed), "helix-window optimization changed ungapped residues")
+    }
+
+    private static func leavesUnoccupiedStructuralVariantsAlone() {
+        let file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        subtype --AU--------
+        aligned --AU----AU--
+        #=GC SS_cons ..<<....>>..
+        //
+        """)
+        let suggestions = StemEditSuggester.suggestions(in: file, modelRow: 0, column: 2, preferLinked: true)
+        expect(
+            !suggestions.contains(where: { $0.operationTitle.contains("Optimize helix") }),
+            "an unoccupied helix arm should be treated as a possible structural variant"
+        )
+    }
+
+    private static func parsesRScapeOutputsAndHandlesMissingExecutable() {
+        let covariance = """
+        # Method Target_E-val
+        *  2  20  45.0  0.001
+           4  18  39.0  0.020
+        """
+        let power = """
+        # BPAIRS 12
+        # BPAIRS expected to covary 4.7 +/- 1.2
+        # BPAIRS observed to covary 1
+        """
+        let process = """
+        # R-scape :: RNA Structural Covariation Above Phylogenetic Expectation
+        # R-scape 2.6.16 (August 2026)
+        """
+        let summary = RScapeOutputParser.summary(
+            covarianceText: covariance,
+            powerText: power,
+            processText: process
+        )
+        expect(summary.version == "2.6.16", "R-scape version parsing")
+        expect(summary.significantPairs == 2, "R-scape significant-pair parsing")
+        expect(summary.significantAnnotatedPairs == 1, "R-scape annotated-pair parsing")
+        expect(summary.annotatedBasePairs == 12, "R-scape proposed-pair parsing")
+        expect(abs((summary.expectedCovaryingPairs ?? 0) - 4.7) < 0.000_001, "R-scape expected-covariation parsing")
+        expect(summary.observedCovaryingPairs == 1, "R-scape observed-covariation parsing")
+        expect(
+            RScapeExecutableLocator.resolveSelection(URL(fileURLWithPath: "/definitely/missing/R-scape")) == nil,
+            "a missing R-scape executable should be a normal nil result"
+        )
+
+        let installation = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MATER-RScape-locator-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: installation) }
+        do {
+            let sourceDirectory = installation.appendingPathComponent("src", isDirectory: true)
+            let binDirectory = installation.appendingPathComponent("bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+            let sourceExecutable = sourceDirectory.appendingPathComponent("R-scape")
+            let binExecutable = binDirectory.appendingPathComponent("R-scape")
+            let r2rExecutable = binDirectory.appendingPathComponent("R2R")
+            for url in [sourceExecutable, binExecutable, r2rExecutable] {
+                try Data("#!/bin/sh\nexit 0\n".utf8).write(to: url)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            }
+            expect(
+                RScapeExecutableLocator.resolveSelection(sourceExecutable)?.path == binExecutable.path,
+                "selecting src/R-scape did not prefer the installed bin/R-scape with R2R"
+            )
+            expect(
+                RScapeExecutableLocator.resolveSelection(installation)?.path == binExecutable.path,
+                "selecting an R-scape installation folder did not resolve bin/R-scape"
+            )
+        } catch {
+            expect(false, "could not construct R-scape locator fixture: \(error.localizedDescription)")
+        }
+    }
+
+    private static func runsRScapeIntegrationWhenRequested() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard let executablePath = environment["MATER_RSCAPE_EXECUTABLE"],
+              let inputPath = environment["MATER_RSCAPE_INPUT"] else { return }
+
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MATER-RScape-integration-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+        do {
+            let source = try String(contentsOfFile: inputPath, encoding: .utf8)
+            let result = try await RScapeRunner.run(
+                executableURL: URL(fileURLWithPath: executablePath),
+                stockholmText: source,
+                outputDirectory: outputDirectory,
+                outputName: "integration-test",
+                processHandle: RScapeProcessHandle()
+            )
+            expect(FileManager.default.fileExists(atPath: result.covarianceTableURL.path), "R-scape integration .cov output")
+            expect(FileManager.default.fileExists(atPath: result.r2rPDFURL.path), "R-scape integration R2R PDF output")
+            expect(result.inputSnapshotURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } == source, "R-scape integration input snapshot")
+            expect((result.summary.annotatedBasePairs ?? 0) > 0, "R-scape integration power summary")
+            let annotated = result.summary.annotatedBasePairs.map(String.init) ?? "unknown"
+            print("R-scape integration passed with \(result.summary.significantPairs) significant pair(s) across \(annotated) annotated pair(s).")
+        } catch {
+            expect(false, "R-scape integration failed: \(error.localizedDescription)")
+        }
     }
 
     private static func refinesEntireAlignmentWithoutChangingSequences() {

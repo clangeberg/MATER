@@ -6,7 +6,7 @@
 
 ## Install
 
-1. Download `MATER-0.7.0-alpha.1-macOS-universal.zip` from the [closed-alpha pre-release](https://github.com/clangeberg/MATER/releases/tag/v0.7.0-alpha.1).
+1. Download `MATER-0.8.0-alpha.1-macOS-universal.zip` from the [closed-alpha pre-release](https://github.com/clangeberg/MATER/releases/tag/v0.8.0-alpha.1).
 2. Unzip it and drag `MATER.app` into Applications.
 3. On first launch, right-click the app and choose **Open**. If macOS still blocks it, allow MATER under **System Settings → Privacy & Security** and open it again.
 
@@ -20,9 +20,10 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 ## Current features
 
 - Native macOS document GUI for `.sto`, `.stk`, and `.stockholm` files
-- Lossless preservation of Stockholm metadata and comments
+- Preservation of Stockholm metadata and comments; single-block files round-trip exactly, while wrapped/interleaved aligned rows are safely normalized into one complete row on save
 - Editable sequence, `#=GC`, and `#=GR` alignment rows
-- Live stem coloring across every `SS_cons*` layer, with non-repeating deterministic colors and noncanonical pairs left uncolored
+- Live insertion-tolerant stem coloring across every `SS_cons*` layer, with one- and two-column bulges retained in the same stem and noncanonical pairs left uncolored
+- Optional **Element** coloring that gives nested and crossing stems in one topology-derived major structural element the same color
 - WUSS/Rfam pairs: `<>`, `()`, `[]`, `{}`, and `A/a` through `Z/z`
 - Descriptive pair-variation coloring for same-pair, one-sided, two-sided, invalid, and gapped observations
 - Residue coloring
@@ -37,8 +38,9 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Enabled-by-default Alignment Integrity mode that protects ordered ungapped sequence data during editing and verifies it again before saving
 - Explicit sequence-editing unlock for intentional residue corrections, with persistent comparison against the opened file
 - Collapsible Structural Quality Inspector with per-stem support metrics, residue-pair counts, pair-by-pair summaries, and clickable observations
-- Gap-only suggested stem fixes with before/after arm previews and canonical/noncanonical/gap deltas
-- One-click whole-alignment auto-refinement that iterates safe gap-only improvements to a local fixed point, writes a new Stockholm file, and leaves the source untouched
+- Gap-only suggested stem fixes that optimize both complete helix arms plus up to three neighboring unpaired columns, with before/after previews and structural/profile scoring
+- One-click whole-alignment auto-refinement that iterates safe coordinated helix-arm and neighboring gap improvements to a local fixed point, writes a new Stockholm file, and leaves the source untouched
+- Optional R-scape evaluate-given-structure (`-s`) integration with retained `.cov` and `.power` tables, an R2R PDF/SVG drawing, and a closable zoomable PDFKit preview inside MATER; executable, `bin`, and installation-folder selection are supported
 - Display-only sequence filtering and sorting by selected-stem pairing violations, name, violation count, or alignment-wide gap fraction
 - Column-aligned structure overview with matching colored blocks for each stem arm and dashed outlines for pseudoknots
 - Combined structure/entropy/gap/pair-violation overview for direct comparison and rapid navigation across large alignments
@@ -86,10 +88,12 @@ Audit the included Rfam examples with:
 - Click or drag to select cells; Shift-click or Shift–arrows extends a rectangular selection.
 - Double-click a paired cell to select both partners; triple-click it to select its entire stem.
 - Click or drag in `SS_cons*`, `RF`, `cons`, or the calculated R2R consensus row to highlight complete alignment columns.
+- Choose **Stem** colors for individual insertion-tolerant stacks or **Element** colors to group nested/overlapping and crossing stems into larger structural elements.
 - Keep **Alignment locked** for normal curation. Gap movement and annotations remain editable, while residue replacement, insertion, deletion, and sequence reordering are protected.
 - Select a stem to populate the **Quality Inspector**; click a reported problem to jump to that sequence and pair.
-- Use **Suggest fixes** to preview adjacent, width-preserving gap transfers that improve the selected sequence's stem without changing its ungapped residues.
-- Use **Auto-refine copy** to scan every sequence and annotated stem, write a uniquely named `*-MATER-refined.sto`, and open it without approving individual edits. Automatic mode never decreases total canonical support or increases definite noncanonical observations.
+- Use **Suggest fixes** to preview width-preserving gap arrangements across both helix arms and their ±3-column unpaired neighborhoods without changing ungapped residues.
+- Use **Auto-refine copy** to scan every sequence and annotated stem, write a uniquely named `*-MATER-refined.sto`, and open it without approving individual edits. Automatic mode never decreases total canonical support or increases definite noncanonical observations; gaps are not treated as failures.
+- Use **Run R-scape** to evaluate the current `SS_cons*` structure with an installed R-scape. Finder apps may not inherit Terminal's PATH; **Locate R-scape…** accepts the executable, `bin` folder, or installation folder and prefers the installed copy beside R2R.
 - Click or drag in the combined structure and analysis overview to navigate long alignments; matching block colors identify paired stem arms.
 - Type an IUPAC nucleotide to replace selected sequence cells.
 - Delete replaces sequence cells with `-` and annotation cells with `.`.

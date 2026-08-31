@@ -8,6 +8,7 @@ struct BasePair: Identifiable, Hashable, Sendable {
     let open: Character
     let close: Character
     var stem: Int
+    var element: Int
 
     var id: String { "\(recordIndex):\(left):\(right)" }
     var isPseudoknot: Bool { structureTag != "SS_cons" || open != "<" }
@@ -38,6 +39,9 @@ struct StemArmShiftPlan: Equatable, Sendable {
 }
 
 enum StructureParser {
+    /// Keep short bulges/internal loops within one visual and editing stem.
+    /// The value is the combined number of skipped columns across both arms.
+    private static let maximumStemBulgeColumns = 2
     private static let explicitBrackets: [Character: Character] = ["<": ">", "(": ")", "[": "]", "{": "}"]
     private static let openToClose: [Character: Character] = {
         var result = explicitBrackets
@@ -62,26 +66,98 @@ enum StructureParser {
                 if openToClose[character] != nil {
                     stacks[character, default: []].append(column)
                 } else if let opener = closeToOpen[character], let left = stacks[opener]?.popLast() {
-                    rowPairs.append(BasePair(left: left, right: column, recordIndex: row.recordIndex, structureTag: tag, open: opener, close: character, stem: -1))
+                    rowPairs.append(BasePair(
+                        left: left,
+                        right: column,
+                        recordIndex: row.recordIndex,
+                        structureTag: tag,
+                        open: opener,
+                        close: character,
+                        stem: -1,
+                        element: -1
+                    ))
                 }
             }
             rowPairs.sort { $0.left == $1.left ? $0.right > $1.right : $0.left < $1.left }
             var priorByBracket: [Character: BasePair] = [:]
-            var stemByBracket: [Character: Int] = [:]
             for var pair in rowPairs {
-                if let prior = priorByBracket[pair.open], prior.left + 1 == pair.left, prior.right - 1 == pair.right {
-                    pair.stem = stemByBracket[pair.open] ?? nextStem
+                if let prior = priorByBracket[pair.open], continuesStem(prior, with: pair) {
+                    pair.stem = prior.stem
                 } else {
                     pair.stem = nextStem
-                    stemByBracket[pair.open] = nextStem
                     nextStem += 1
                 }
                 priorByBracket[pair.open] = pair
-                stemByBracket[pair.open] = pair.stem
                 result.append(pair)
             }
         }
-        return result
+        return assigningMajorElements(to: result)
+    }
+
+    /// Immediately nested pairs stay in one stem even when a small insertion
+    /// creates a one- or two-column bulge on one or both arms. A large internal
+    /// loop, branch, disjoint helix, different WUSS class, or different
+    /// SS_cons row starts a new stem.
+    private static func continuesStem(_ outer: BasePair, with inner: BasePair) -> Bool {
+        let leftStep = inner.left - outer.left
+        let rightStep = outer.right - inner.right
+        guard outer.recordIndex == inner.recordIndex,
+              outer.open == inner.open,
+              leftStep >= 1,
+              rightStep >= 1 else { return false }
+        return (leftStep - 1) + (rightStep - 1) <= maximumStemBulgeColumns
+    }
+
+    /// A major element is a connected component of overlapping stem spans.
+    /// Containment joins branched/nested helices and interval crossings join
+    /// pseudoknot networks. Disjoint hairpins remain separate. This supplies a
+    /// useful topology-derived domain coloring without changing the finer stem
+    /// identities used by editing and quality calculations.
+    private static func assigningMajorElements(to pairs: [BasePair]) -> [BasePair] {
+        let pairsByStem = Dictionary(grouping: pairs, by: \.stem)
+        let stems = pairsByStem.keys.sorted()
+        guard !stems.isEmpty else { return pairs }
+        let spans: [Int: ClosedRange<Int>] = Dictionary(uniqueKeysWithValues: stems.compactMap { stem in
+            guard let stemPairs = pairsByStem[stem],
+                  let lower = stemPairs.map(\.left).min(),
+                  let upper = stemPairs.map(\.right).max() else { return nil }
+            return (stem, lower...upper)
+        })
+        var parent = Dictionary(uniqueKeysWithValues: stems.map { ($0, $0) })
+
+        func root(of stem: Int) -> Int {
+            var current = stem
+            while let next = parent[current], next != current { current = next }
+            return current
+        }
+
+        for firstIndex in stems.indices {
+            for secondIndex in stems.indices where secondIndex > firstIndex {
+                let first = stems[firstIndex]
+                let second = stems[secondIndex]
+                guard let firstSpan = spans[first], let secondSpan = spans[second],
+                      firstSpan.overlaps(secondSpan) else { continue }
+                let firstRoot = root(of: first)
+                let secondRoot = root(of: second)
+                if firstRoot != secondRoot { parent[secondRoot] = firstRoot }
+            }
+        }
+
+        let components = Dictionary(grouping: stems, by: { root(of: $0) }).values.sorted { lhs, rhs in
+            let lhsStart = lhs.compactMap { spans[$0]?.lowerBound }.min() ?? Int.max
+            let rhsStart = rhs.compactMap { spans[$0]?.lowerBound }.min() ?? Int.max
+            if lhsStart != rhsStart { return lhsStart < rhsStart }
+            return (lhs.min() ?? Int.max) < (rhs.min() ?? Int.max)
+        }
+        var elementByStem: [Int: Int] = [:]
+        for (element, component) in components.enumerated() {
+            for stem in component { elementByStem[stem] = element }
+        }
+        return pairs.map { pair in
+            var result = pair
+            result.element = elementByStem[pair.stem] ?? pair.stem
+            return result
+        }
     }
 
     static func pair(at column: Int, in file: StockholmFile) -> BasePair? {

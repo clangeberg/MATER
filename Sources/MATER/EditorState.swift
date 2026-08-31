@@ -8,6 +8,7 @@ struct StemShiftContinuation: Equatable {
 
 enum AlignmentColorMode: String, CaseIterable, Identifiable {
     case stem
+    case element
     case covariation
     case residue
     case none
@@ -16,6 +17,7 @@ enum AlignmentColorMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .stem: return "Stem"
+        case .element: return "Element"
         case .covariation: return "Pair variation"
         case .residue: return "Residue"
         case .none: return "None"

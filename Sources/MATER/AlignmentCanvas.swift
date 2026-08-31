@@ -414,6 +414,14 @@ final class AlignmentCanvasView: NSView {
                 background = AlignmentPalette.stemColor(for: stem)
                 foreground = .black
             }
+        case .element:
+            if let pair = stemPairByColumn[column] {
+                if row.kind.isSequence, canonicalStemColumnsByRecord[row.recordIndex]?.contains(column) != true {
+                    break
+                }
+                background = AlignmentPalette.stemColor(for: pair.element)
+                foreground = .black
+            }
         case .covariation:
             if row.kind.isSequence, let classification = covariance?[row.recordIndex]?[column] {
                 background = AlignmentPalette.covariation[classification]
@@ -510,6 +518,12 @@ final class AlignmentCanvasView: NSView {
                        consensusCharacters.indices.contains(pair.left), consensusCharacters.indices.contains(pair.right),
                        BasePairRules.isCanonical(consensusCharacters[pair.left], consensusCharacters[pair.right]) {
                         background = AlignmentPalette.stemColor(for: pair.stem)
+                    }
+                case .element:
+                    if let pair = stemPairByColumn[column],
+                       consensusCharacters.indices.contains(pair.left), consensusCharacters.indices.contains(pair.right),
+                       BasePairRules.isCanonical(consensusCharacters[pair.left], consensusCharacters[pair.right]) {
+                        background = AlignmentPalette.stemColor(for: pair.element)
                     }
                 case .residue:
                     background = residuePalette?.color(for: character)

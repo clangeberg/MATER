@@ -12,6 +12,7 @@ struct DocumentEditorView: View {
     @State private var suggestedEdits: [StemEditSuggestion] = []
     @State private var showingSuggestedEdits = false
     @State private var isAutoRefining = false
+    @StateObject private var rScapeController = RScapeController()
     @FocusState private var searchFieldFocused: Bool
     @Environment(\.undoManager) private var undoManager
 
@@ -35,11 +36,22 @@ struct DocumentEditorView: View {
                     Divider()
                     StructuralQualityInspector(document: document, state: state, suggestEdits: suggestAlignmentEdits)
                 }
+                if rScapeController.isPanelVisible {
+                    Divider()
+                    RScapeResultsPanel(
+                        controller: rScapeController,
+                        locateExecutable: locateRScape,
+                        runAgain: startRScapeAnalysis
+                    )
+                }
             }
             Divider()
             legendAndStatus
         }
-        .frame(minWidth: state.showInspector ? 1120 : 900, minHeight: 650)
+        .frame(
+            minWidth: 900 + (state.showInspector ? 220 : 0) + (rScapeController.isPanelVisible ? 300 : 0),
+            minHeight: 650
+        )
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(item: $pendingExportFormat) { format in
             ExportOptionsView(
@@ -76,8 +88,8 @@ struct DocumentEditorView: View {
                     ForEach(AlignmentColorMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 360)
-                .help("Switch among stem, descriptive pair-variation, nucleotide identity, and uncolored views.")
+                .frame(width: 445)
+                .help("Switch among individual stems, topology-derived major elements, descriptive pair variation, nucleotide identity, and uncolored views.")
 
                 Menu {
                     ColorPicker("Adenine (A)", selection: residuePalette.binding(for: "A"), supportsOpacity: false)
@@ -215,7 +227,21 @@ struct DocumentEditorView: View {
                     }
                 }
                 .disabled(isAutoRefining || document.analysis.structurePairs.isEmpty)
-                .help("Create and open a new alignment after automatically applying every safe gap-only structural improvement to convergence. The current file is not changed.")
+                .help("Create and open a new alignment after automatically applying safe helix-window and neighboring gap refinements to convergence. The current file is not changed.")
+                Button(action: showOrRunRScape) {
+                    if rScapeController.isRunning {
+                        HStack(spacing: 5) {
+                            ProgressView().controlSize(.mini)
+                            Text("R-scape…")
+                        }
+                    } else if rScapeController.result != nil {
+                        Label("R-scape results", systemImage: "waveform.path.ecg")
+                    } else {
+                        Label("Run R-scape", systemImage: "waveform.path.ecg")
+                    }
+                }
+                .disabled(document.analysis.structurePairs.isEmpty)
+                .help("Evaluate the current given SS_cons structure with an installed R-scape `-s` test and show the R2R result in a closable panel.")
             }
 
             HStack(spacing: 10) {
@@ -285,7 +311,10 @@ struct DocumentEditorView: View {
                 LegendSwatch(color: .red.opacity(0.85), label: "noncanonical")
                 LegendSwatch(color: .gray.opacity(0.55), label: "gap")
             case .stem:
-                Text("Canonical AU/UA/GC/CG/GU/UG pairs are colored by stem; violations remain uncolored.")
+                Text("Canonical pairs are colored by insertion-tolerant stem; large loops and branches start a new stem.")
+                    .foregroundStyle(.secondary)
+            case .element:
+                Text("Canonical pairs in nested or crossing stems are colored together as topology-derived major elements.")
                     .foregroundStyle(.secondary)
             case .residue:
                 LegendSwatch(color: Color(nsColor: residuePalette.adenine), label: "A")
@@ -458,6 +487,117 @@ struct DocumentEditorView: View {
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
             }
+        }
+    }
+
+    private func showOrRunRScape() {
+        if rScapeController.hasPresentableState {
+            rScapeController.isPanelVisible = true
+            return
+        }
+        startRScapeAnalysis()
+    }
+
+    private func startRScapeAnalysis() {
+        guard !rScapeController.isRunning else {
+            rScapeController.isPanelVisible = true
+            return
+        }
+        guard let executableURL = RScapeExecutableLocator.locate() else {
+            rScapeController.presentMissingExecutable()
+            state.statusMessage = "R-scape was not found in PATH. Use Locate R-scape in the results panel."
+            return
+        }
+        UserDefaults.standard.set(executableURL.path, forKey: RScapeExecutableLocator.savedPathKey)
+        startRScapeAnalysis(using: executableURL)
+    }
+
+    private func startRScapeAnalysis(using executableURL: URL) {
+        let errors = document.analysis.validationIssues.filter { $0.severity == .error }
+        guard errors.isEmpty else {
+            let message = "Fix the Stockholm validation errors before running R-scape. "
+                + errors.prefix(3).map(\.message).joined(separator: " ")
+            rScapeController.presentError(NSError(
+                domain: "MATER.RScape",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            ))
+            state.statusMessage = "R-scape requires a valid Stockholm alignment."
+            return
+        }
+        guard !document.analysis.structurePairs.isEmpty else {
+            rScapeController.presentError(NSError(
+                domain: "MATER.RScape",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "R-scape’s given-structure test requires at least one recognized SS_cons pair."]
+            ))
+            return
+        }
+        guard let outputDirectory = rScapeOutputDirectory() else { return }
+
+        let baseName = sourceURL?.deletingPathExtension().lastPathComponent ?? "MATER-alignment"
+        rScapeController.run(
+            executableURL: executableURL,
+            stockholmText: document.file.rendered,
+            outputDirectory: outputDirectory,
+            outputName: "\(baseName)-R-scape"
+        )
+        state.statusMessage = "R-scape is evaluating a snapshot of the given structure."
+    }
+
+    private func locateRScape() {
+        let panel = NSOpenPanel()
+        panel.title = "Locate R-scape"
+        panel.message = "Select the R-scape executable, its bin folder, or the R-scape installation folder. MATER will prefer the installed bin copy containing R2R."
+        panel.prompt = "Use R-scape"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+        if let savedPath = UserDefaults.standard.string(forKey: RScapeExecutableLocator.savedPathKey) {
+            panel.directoryURL = URL(fileURLWithPath: savedPath).deletingLastPathComponent()
+        }
+        guard panel.runModal() == .OK, let selectionURL = panel.url else { return }
+        guard let executableURL = RScapeExecutableLocator.resolveSelection(selectionURL) else {
+            rScapeController.presentError(RScapeRunError.invalidExecutable(selectionURL.path))
+            NSSound.beep()
+            return
+        }
+        UserDefaults.standard.set(executableURL.path, forKey: RScapeExecutableLocator.savedPathKey)
+        startRScapeAnalysis(using: executableURL)
+    }
+
+    private func rScapeOutputDirectory() -> URL? {
+        let parentDirectory: URL
+        let baseName: String
+        if let sourceURL {
+            parentDirectory = sourceURL.deletingLastPathComponent()
+            baseName = sourceURL.deletingPathExtension().lastPathComponent
+        } else {
+            let panel = NSOpenPanel()
+            panel.title = "Choose R-scape Results Location"
+            panel.message = "MATER will create a new results folder in the selected directory."
+            panel.prompt = "Choose"
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+            panel.allowsMultipleSelection = false
+            guard panel.runModal() == .OK, let selectedDirectory = panel.url else { return nil }
+            parentDirectory = selectedDirectory
+            baseName = "MATER-alignment"
+        }
+
+        let fileManager = FileManager.default
+        var suffix = ""
+        var counter = 2
+        while true {
+            let candidate = parentDirectory.appendingPathComponent(
+                "\(baseName)-MATER-R-scape\(suffix)",
+                isDirectory: true
+            )
+            if !fileManager.fileExists(atPath: candidate.path) { return candidate }
+            suffix = "-\(counter)"
+            counter += 1
         }
     }
 

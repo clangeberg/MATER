@@ -256,6 +256,7 @@ struct AlignmentMinimapView: View {
 
     private struct StemBlock: Identifiable {
         let stem: Int
+        let element: Int
         let columns: ClosedRange<Int>
         let isPseudoknot: Bool
 
@@ -271,7 +272,9 @@ struct AlignmentMinimapView: View {
         VStack(spacing: 4) {
             HStack {
                 Label("Structure and alignment overview", systemImage: "rectangle.3.group")
-                Text("\(Set(pairs.map(\.stem)).count) stems • \(pairs.filter(\.isPseudoknot).count) pseudoknot pairs")
+                Text(state.colorMode == .element
+                    ? "\(Set(pairs.map(\.element)).count) elements • \(Set(pairs.map(\.stem)).count) stems • \(pairs.filter(\.isPseudoknot).count) pseudoknot pairs"
+                    : "\(Set(pairs.map(\.stem)).count) stems • \(pairs.filter(\.isPseudoknot).count) pseudoknot pairs")
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text("Click or drag to navigate").foregroundStyle(.secondary)
@@ -298,9 +301,9 @@ struct AlignmentMinimapView: View {
                         context.fill(Path(rect), with: .color(.secondary.opacity(0.10)))
                     }
 
-                    let selectedStem = pairs.first {
+                    let selectedPair = pairs.first {
                         $0.left == state.selectedColumn || $0.right == state.selectedColumn
-                    }?.stem
+                    }
                     for block in blocks {
                         let x = CGFloat(block.columns.lowerBound) / CGFloat(length) * size.width
                         let blockWidth = max(
@@ -308,15 +311,17 @@ struct AlignmentMinimapView: View {
                             CGFloat(block.columns.count) / CGFloat(length) * size.width
                         )
                         let rect = CGRect(x: x, y: structureY, width: blockWidth, height: structureHeight)
-                        let color = Color(nsColor: AlignmentPalette.stemColor(for: block.stem))
-                        context.fill(Path(rect), with: .color(color.opacity(selectedStem == block.stem ? 1 : 0.78)))
+                        let colorGroup = state.colorMode == .element ? block.element : block.stem
+                        let selectedGroup = state.colorMode == .element ? selectedPair?.element : selectedPair?.stem
+                        let color = Color(nsColor: AlignmentPalette.stemColor(for: colorGroup))
+                        context.fill(Path(rect), with: .color(color.opacity(selectedGroup == colorGroup ? 1 : 0.78)))
                         if block.isPseudoknot {
                             context.stroke(
                                 Path(rect.insetBy(dx: 0.5, dy: 0.5)),
                                 with: .color(.primary.opacity(0.72)),
                                 style: StrokeStyle(lineWidth: 1, dash: [2, 1.5])
                             )
-                        } else if selectedStem == block.stem {
+                        } else if selectedGroup == colorGroup {
                             context.stroke(Path(rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(.primary), lineWidth: 1.5)
                         }
                     }
@@ -354,7 +359,10 @@ struct AlignmentMinimapView: View {
                     ))
                     state.select(row: state.selectedRow, column: column, wholeColumn: true)
                     if let pair = pairs.first(where: { $0.left == column || $0.right == column }) {
-                        state.statusMessage = "Alignment overview • stem \(pair.stem + 1), column \(column + 1)"
+                        let group = state.colorMode == .element
+                            ? "element \(pair.element + 1), stem \(pair.stem + 1)"
+                            : "stem \(pair.stem + 1)"
+                        state.statusMessage = "Alignment overview • \(group), column \(column + 1)"
                     } else {
                         state.statusMessage = "Alignment overview • column \(column + 1)"
                     }
@@ -362,7 +370,8 @@ struct AlignmentMinimapView: View {
             }
             .frame(height: 40)
             HStack(spacing: 12) {
-                Label("stem blocks", systemImage: "square.fill").foregroundStyle(.orange)
+                Label(state.colorMode == .element ? "element-colored stem blocks" : "stem blocks", systemImage: "square.fill")
+                    .foregroundStyle(.orange)
                 Text("dashed outline = pseudoknot").foregroundStyle(.secondary)
                 Label("entropy", systemImage: "square.fill").foregroundStyle(.indigo)
                 Label("gaps", systemImage: "square.fill").foregroundStyle(.teal)
@@ -381,10 +390,11 @@ struct AlignmentMinimapView: View {
     private func stemBlocks(for pairs: [BasePair]) -> [StemBlock] {
         Dictionary(grouping: pairs, by: \.stem).flatMap { stem, stemPairs in
             let pseudoknot = stemPairs.contains(where: \.isPseudoknot)
+            let element = stemPairs.first?.element ?? stem
             return contiguousRanges(stemPairs.map(\.left)).map {
-                StemBlock(stem: stem, columns: $0, isPseudoknot: pseudoknot)
+                StemBlock(stem: stem, element: element, columns: $0, isPseudoknot: pseudoknot)
             } + contiguousRanges(stemPairs.map(\.right)).map {
-                StemBlock(stem: stem, columns: $0, isPseudoknot: pseudoknot)
+                StemBlock(stem: stem, element: element, columns: $0, isPseudoknot: pseudoknot)
             }
         }
         .sorted {
@@ -421,8 +431,8 @@ struct SuggestedEditsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Suggested gap shifts").font(.title2.bold())
-                    Text("Suggestions never change the ungapped sequence and each accepted edit is undoable.")
+                    Text("Suggested helix refinements").font(.title2.bold())
+                    Text("MATER searches the complete helix and its ±3-nt neighborhood. Suggestions never change the ungapped sequence and each accepted edit is undoable.")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -437,7 +447,7 @@ struct SuggestedEditsView: View {
                         .font(.system(size: 38))
                         .foregroundStyle(.secondary)
                     Text("No safe improvement found").font(.headline)
-                    Text("MATER tested adjacent one-column shifts for the selected stem. Opening a nearby gap or selecting the other arm may expose another option.")
+                    Text("MATER found no integrity-safe improvement across the selected helix and its neighboring unpaired columns. Gapped helices without enough occupancy on both arms are left alone as possible structural variants.")
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: 460)
@@ -462,7 +472,7 @@ struct SuggestedEditsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(suggestion.directionTitle).font(.headline)
-                    Text("\(suggestion.sequenceName) • Stem \(suggestion.stem + 1) • \(suggestion.linked ? "both arms linked" : "selected arm only")")
+                    Text("\(suggestion.sequenceName) • Stem \(suggestion.stem + 1) • \(suggestion.linked ? "both arms considered" : "selected arm only")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -474,10 +484,18 @@ struct SuggestedEditsView: View {
             HStack(spacing: 16) {
                 delta("Canonical", before: suggestion.before.canonical, after: suggestion.after.canonical, favorableIncrease: true)
                 delta("Noncanonical", before: suggestion.before.noncanonical, after: suggestion.after.noncanonical, favorableIncrease: false)
-                delta("Gaps", before: suggestion.before.gaps, after: suggestion.after.gaps, favorableIncrease: false)
-                Text("Whole alignment: \(suggestion.globalCanonicalBefore) → \(suggestion.globalCanonicalAfter) canonical")
+                Text("Stem total: \(suggestion.globalCanonicalBefore) → \(suggestion.globalCanonicalAfter) canonical")
                     .font(.caption)
                     .foregroundStyle(suggestion.globalCanonicalGain > 0 ? .green : .secondary)
+            }
+            HStack(spacing: 16) {
+                Text(String(format: "Neighbor profile: %+.2f", suggestion.neighborhoodProfileGain))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(suggestion.neighborhoodProfileGain >= 0.20 ? .green : .secondary)
+                    .help("Change in leave-one-out GSC-weighted agreement across the neighboring unpaired columns. Gaps themselves are not scored as structural violations.")
+                Text("Displacement: \(suggestion.residueDisplacement)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
 
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {

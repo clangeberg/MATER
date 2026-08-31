@@ -80,11 +80,18 @@ struct StockholmFile: Equatable, Sendable {
     var records: [StockholmRecord]
     var lineEnding: String
     var hasFinalNewline: Bool
+    var normalizedInterleavedSegmentCount: Int
 
-    init(records: [StockholmRecord], lineEnding: String = "\n", hasFinalNewline: Bool = true) {
+    init(
+        records: [StockholmRecord],
+        lineEnding: String = "\n",
+        hasFinalNewline: Bool = true,
+        normalizedInterleavedSegmentCount: Int = 0
+    ) {
         self.records = records
         self.lineEnding = lineEnding
         self.hasFinalNewline = hasFinalNewline
+        self.normalizedInterleavedSegmentCount = normalizedInterleavedSegmentCount
     }
 
     var rows: [AlignmentRow] {
@@ -114,6 +121,12 @@ struct StockholmFile: Equatable, Sendable {
 
     var validationIssues: [ValidationIssue] {
         var issues: [ValidationIssue] = []
+        if normalizedInterleavedSegmentCount > 0 {
+            issues.append(.init(
+                severity: .warning,
+                message: "Opened an interleaved Stockholm alignment and joined \(normalizedInterleavedSegmentCount) wrapped row segment\(normalizedInterleavedSegmentCount == 1 ? "" : "s") into complete rows. Saving writes the normalized single-block form."
+            ))
+        }
         let length = alignmentLength
         if sequenceRows.isEmpty {
             issues.append(.init(severity: .error, message: "No sequence rows were found."))
@@ -363,14 +376,69 @@ struct StockholmFile: Equatable, Sendable {
 }
 
 enum StockholmParser {
+    private enum AlignedRecordKey: Hashable {
+        case sequence(String)
+        case columnAnnotation(String)
+        case residueAnnotation(sequence: String, tag: String)
+    }
+
     static func parse(_ text: String) -> StockholmFile {
         let lineEnding = text.contains("\r\n") ? "\r\n" : "\n"
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        let hasFinalNewline = normalized.hasSuffix("\n")
-        var lines = normalized.components(separatedBy: "\n")
+        let normalizedText = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let hasFinalNewline = normalizedText.hasSuffix("\n")
+        var lines = normalizedText.components(separatedBy: "\n")
         if hasFinalNewline, lines.last == "" { lines.removeLast() }
-        let records = lines.map(parseLine)
-        return StockholmFile(records: records, lineEnding: lineEnding, hasFinalNewline: hasFinalNewline)
+        let parsedRecords = lines.map(parseLine)
+        let joined = joiningInterleavedSegments(in: parsedRecords)
+        return StockholmFile(
+            records: joined.records,
+            lineEnding: lineEnding,
+            hasFinalNewline: hasFinalNewline,
+            normalizedInterleavedSegmentCount: joined.joinedSegmentCount
+        )
+    }
+
+    /// Stockholm permits an alignment to be wrapped into repeated blocks. The
+    /// editor uses one complete string per logical row, so join later segments
+    /// by their sequence name or annotation identity while retaining raw
+    /// metadata/comments and the first row's formatting.
+    private static func joiningInterleavedSegments(
+        in parsedRecords: [StockholmRecord]
+    ) -> (records: [StockholmRecord], joinedSegmentCount: Int) {
+        var result: [StockholmRecord] = []
+        var resultIndexByKey: [AlignedRecordKey: Int] = [:]
+        var joinedSegmentCount = 0
+
+        for record in parsedRecords {
+            guard let key = alignedRecordKey(for: record) else {
+                result.append(record)
+                if record.raw.trimmingCharacters(in: .whitespaces) == "//" {
+                    resultIndexByKey.removeAll()
+                }
+                continue
+            }
+            guard let existingIndex = resultIndexByKey[key] else {
+                resultIndexByKey[key] = result.count
+                result.append(record)
+                continue
+            }
+            result[existingIndex].aligned += record.aligned
+            joinedSegmentCount += 1
+        }
+        return (result, joinedSegmentCount)
+    }
+
+    private static func alignedRecordKey(for record: StockholmRecord) -> AlignedRecordKey? {
+        switch record.kind {
+        case .sequence(let name):
+            return .sequence(name)
+        case .columnAnnotation(let tag):
+            return .columnAnnotation(tag)
+        case .residueAnnotation(let sequence, let tag):
+            return .residueAnnotation(sequence: sequence, tag: tag)
+        case nil:
+            return nil
+        }
     }
 
     private static func parseLine(_ line: String) -> StockholmRecord {
@@ -577,7 +645,10 @@ enum ConsensusAnalyzer {
         return denominator == 0 ? 0 : Float(identities) / Float(denominator)
     }
 
-    private static func gscWeights(for sequences: [[Character]]) -> [Float] {
+    /// Exposed within the module so alignment refinement can compare nearby
+    /// unpaired residues against the same GSC-weighted sequence evidence used
+    /// by the displayed R2R consensus.
+    static func gscWeights(for sequences: [[Character]]) -> [Float] {
         let count = sequences.count
         guard count > 1 else { return count == 1 ? [1] : [] }
 
