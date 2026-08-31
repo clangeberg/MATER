@@ -388,6 +388,40 @@ struct StemEditSuggestion: Identifiable, Equatable, Sendable {
     var directionTitle: String { operationTitle }
 }
 
+struct AlignmentRefinementScore: Equatable, Sendable {
+    let canonical: Int
+    let noncanonical: Int
+    let gaps: Int
+    let ambiguous: Int
+
+    /// Automatic refinement uses a Pareto-style safety rule: canonical support
+    /// may not decrease and definite noncanonical observations may not increase.
+    /// Gap and ambiguity counts are descriptive tie-breakers only because either
+    /// can represent a legitimate structural subtype or incomplete sequence.
+    func isSafeImprovement(over other: AlignmentRefinementScore) -> Bool {
+        canonical >= other.canonical
+            && noncanonical <= other.noncanonical
+            && (canonical > other.canonical || noncanonical < other.noncanonical)
+    }
+
+    func isPreferred(over other: AlignmentRefinementScore) -> Bool {
+        if canonical != other.canonical { return canonical > other.canonical }
+        if noncanonical != other.noncanonical { return noncanonical < other.noncanonical }
+        if gaps != other.gaps { return gaps < other.gaps }
+        return ambiguous < other.ambiguous
+    }
+}
+
+struct AlignmentRefinementResult: Equatable, Sendable {
+    let file: StockholmFile
+    let before: AlignmentRefinementScore
+    let after: AlignmentRefinementScore
+    let editCount: Int
+    let changedSequenceCount: Int
+    let passes: Int
+    let converged: Bool
+}
+
 enum StemEditSuggester {
     static func suggestions(
         in file: StockholmFile,
@@ -395,26 +429,50 @@ enum StemEditSuggester {
         column: Int,
         preferLinked: Bool
     ) -> [StemEditSuggestion] {
+        let allPairs = StructureParser.pairs(in: file)
         let rows = file.rows
         guard rows.indices.contains(modelRow), rows[modelRow].kind.isSequence,
-              let cursorPair = StructureParser.pair(at: column, in: file),
+              let cursorPair = allPairs.first(where: { $0.left == column || $0.right == column }) else { return [] }
+        return suggestions(
+            in: file,
+            modelRow: modelRow,
+            cursorPair: cursorPair,
+            stemPairs: allPairs.filter { $0.stem == cursorPair.stem }.sorted { $0.left < $1.left },
+            cursorIsLeft: cursorPair.left == column,
+            preferLinked: preferLinked,
+            allPairs: allPairs,
+            globalCanonicalBeforeOverride: nil
+        )
+    }
+
+    private static func suggestions(
+        in file: StockholmFile,
+        modelRow: Int,
+        cursorPair: BasePair,
+        stemPairs: [BasePair],
+        cursorIsLeft: Bool,
+        preferLinked: Bool,
+        allPairs: [BasePair],
+        globalCanonicalBeforeOverride: Int?
+    ) -> [StemEditSuggestion] {
+        let rows = file.rows
+        guard rows.indices.contains(modelRow), rows[modelRow].kind.isSequence,
               case .sequence(let sequenceName) = rows[modelRow].kind else { return [] }
-        let allPairs = StructureParser.pairs(in: file)
-        let stemPairs = allPairs.filter { $0.stem == cursorPair.stem }.sorted { $0.left < $1.left }
-        let cursorIsLeft = cursorPair.left == column
         let primaryColumns = Set(stemPairs.map { cursorIsLeft ? $0.left : $0.right })
         let counterpartColumns = Set(stemPairs.map { cursorIsLeft ? $0.right : $0.left })
         let recordIndex = rows[modelRow].recordIndex
         let originalCharacters = Array(file.records[recordIndex].aligned)
         let originalAligned = file.records[recordIndex].aligned
         let beforeMetrics = rowMetrics(characters: originalCharacters, pairs: stemPairs)
-        let globalBefore = StructuralQualityAnalyzer.quality(stem: cursorPair.stem, pairs: allPairs, in: file)?.canonical ?? 0
+        let globalBefore = globalCanonicalBeforeOverride
+            ?? StructuralQualityAnalyzer.quality(stem: cursorPair.stem, pairs: allPairs, in: file)?.canonical
+            ?? 0
         let linkOrder = preferLinked ? [true, false] : [false, true]
         var results: [StemEditSuggestion] = []
         var seenAlignments: Set<String> = []
 
         func appendCandidate(
-            _ candidate: StockholmFile,
+            _ candidateAligned: String,
             identifier: String,
             title: String,
             direction: Int,
@@ -422,12 +480,11 @@ enum StemEditSuggester {
             moves: [Int: Int],
             destinationColumns: Set<Int>
         ) {
-            let candidateAligned = candidate.records[recordIndex].aligned
             guard seenAlignments.insert(candidateAligned).inserted,
-                  SequenceIntegrityAnalyzer.preservesSequences(from: file, to: candidate) else { return }
+                  ungappedResidues(in: candidateAligned) == ungappedResidues(in: originalAligned) else { return }
             let candidateCharacters = Array(candidateAligned)
             let afterMetrics = rowMetrics(characters: candidateCharacters, pairs: stemPairs)
-            let globalAfter = StructuralQualityAnalyzer.quality(stem: cursorPair.stem, pairs: allPairs, in: candidate)?.canonical ?? 0
+            let globalAfter = globalBefore - beforeMetrics.canonical + afterMetrics.canonical
             let improvement = afterMetrics.canonical > beforeMetrics.canonical
                 || (afterMetrics.canonical == beforeMetrics.canonical && afterMetrics.noncanonical < beforeMetrics.noncanonical)
                 || (afterMetrics.canonical == beforeMetrics.canonical && afterMetrics.gaps < beforeMetrics.gaps)
@@ -468,10 +525,9 @@ enum StemEditSuggester {
                     direction: direction,
                     linkPairedArm: linked
                 )
-                var candidate = file
-                guard candidate.shift(rows: [modelRow], moves: plan.moves) else { continue }
+                guard let candidateAligned = shifted(originalAligned, moves: plan.moves) else { continue }
                 appendCandidate(
-                    candidate,
+                    candidateAligned,
                     identifier: "stem:\(modelRow):\(cursorPair.stem):\(direction):\(linked)",
                     title: direction < 0 ? "Shift selected stem arm left" : "Shift selected stem arm right",
                     direction: direction,
@@ -490,8 +546,7 @@ enum StemEditSuggester {
             [endpoint - 1, endpoint, endpoint + 1].filter { $0 >= 0 && $0 < file.alignmentLength }
         })
         for candidateColumn in candidateColumns.sorted() {
-            var opened = file
-            if opened.openGap(row: modelRow, at: candidateColumn) {
+            if let opened = openingGap(in: originalAligned, at: candidateColumn) {
                 appendCandidate(
                     opened,
                     identifier: "open:\(modelRow):\(candidateColumn)",
@@ -502,8 +557,7 @@ enum StemEditSuggester {
                     destinationColumns: endpoints
                 )
             }
-            var closed = file
-            if closed.closeGap(row: modelRow, at: candidateColumn) {
+            if let closed = closingGap(in: originalAligned, at: candidateColumn) {
                 appendCandidate(
                     closed,
                     identifier: "close:\(modelRow):\(candidateColumn)",
@@ -518,10 +572,182 @@ enum StemEditSuggester {
 
         return results.sorted {
             if $0.canonicalGain != $1.canonicalGain { return $0.canonicalGain > $1.canonicalGain }
+            if $0.globalCanonicalGain != $1.globalCanonicalGain { return $0.globalCanonicalGain > $1.globalCanonicalGain }
             if $0.after.noncanonical != $1.after.noncanonical { return $0.after.noncanonical < $1.after.noncanonical }
             if $0.after.gaps != $1.after.gaps { return $0.after.gaps < $1.after.gaps }
-            return $0.linked && !$1.linked
+            if $0.linked != $1.linked { return $0.linked && !$1.linked }
+            return $0.id < $1.id
         }
+    }
+
+    /// Iteratively applies the strongest structural improvement available for
+    /// each sequence. Every accepted edit preserves ungapped residues, never
+    /// reduces the alignment-wide canonical count, and never increases the
+    /// definite noncanonical count. Successive passes build on prior edits
+    /// until no supported one-column move can safely improve those metrics.
+    static func refineEntireAlignment(
+        in source: StockholmFile,
+        preferLinked: Bool,
+        maximumPasses: Int = 50
+    ) -> AlignmentRefinementResult {
+        let allPairs = StructureParser.pairs(in: source)
+        let beforeScore = alignmentScore(in: source, pairs: allPairs)
+        guard !allPairs.isEmpty, maximumPasses > 0 else {
+            return AlignmentRefinementResult(
+                file: source,
+                before: beforeScore,
+                after: beforeScore,
+                editCount: 0,
+                changedSequenceCount: 0,
+                passes: 0,
+                converged: true
+            )
+        }
+
+        let stems = Dictionary(grouping: allPairs, by: \.stem)
+            .sorted { $0.key < $1.key }
+            .map { $0.value.sorted { $0.left < $1.left } }
+        var refined = source
+        var score = beforeScore
+        var editCount = 0
+        var changedRecordIndices: Set<Int> = []
+        var passes = 0
+        var converged = false
+
+        while passes < maximumPasses {
+            passes += 1
+            var changedInPass = false
+            let rows = refined.rows
+
+            for modelRow in rows.indices where rows[modelRow].kind.isSequence {
+                let recordIndex = rows[modelRow].recordIndex
+                let currentAligned = refined.records[recordIndex].aligned
+                let currentRowScore = refinementScore(
+                    rowMetrics(characters: Array(currentAligned), pairs: allPairs)
+                )
+                var bestSuggestion: StemEditSuggestion?
+                var bestScore: AlignmentRefinementScore?
+                var seenAlignments: Set<String> = []
+
+                for stemPairs in stems {
+                    guard let cursorPair = stemPairs.first else { continue }
+                    for cursorIsLeft in [true, false] {
+                        let candidates = suggestions(
+                            in: refined,
+                            modelRow: modelRow,
+                            cursorPair: cursorPair,
+                            stemPairs: stemPairs,
+                            cursorIsLeft: cursorIsLeft,
+                            preferLinked: preferLinked,
+                            allPairs: allPairs,
+                            globalCanonicalBeforeOverride: 0
+                        )
+                        for candidate in candidates where seenAlignments.insert(candidate.proposedAligned).inserted {
+                            let candidateRowScore = refinementScore(
+                                rowMetrics(characters: Array(candidate.proposedAligned), pairs: allPairs)
+                            )
+                            let candidateScore = replacing(
+                                score,
+                                rowScore: currentRowScore,
+                                with: candidateRowScore
+                            )
+                            guard candidateScore.isSafeImprovement(over: score) else { continue }
+                            if let existingScore = bestScore {
+                                if candidateScore.isPreferred(over: existingScore)
+                                    || (candidateScore == existingScore
+                                        && bestSuggestion.map { isPreferred(candidate, over: $0) } == true) {
+                                    bestSuggestion = candidate
+                                    bestScore = candidateScore
+                                }
+                            } else {
+                                bestSuggestion = candidate
+                                bestScore = candidateScore
+                            }
+                        }
+                    }
+                }
+
+                guard let bestSuggestion, let bestScore,
+                      refined.records[recordIndex].aligned == bestSuggestion.expectedAligned else { continue }
+                refined.records[recordIndex].aligned = bestSuggestion.proposedAligned
+                score = bestScore
+                editCount += 1
+                changedRecordIndices.insert(recordIndex)
+                changedInPass = true
+            }
+
+            if !changedInPass {
+                converged = true
+                break
+            }
+        }
+
+        guard SequenceIntegrityAnalyzer.preservesSequences(from: source, to: refined) else {
+            return AlignmentRefinementResult(
+                file: source,
+                before: beforeScore,
+                after: beforeScore,
+                editCount: 0,
+                changedSequenceCount: 0,
+                passes: passes,
+                converged: false
+            )
+        }
+        return AlignmentRefinementResult(
+            file: refined,
+            before: beforeScore,
+            after: score,
+            editCount: editCount,
+            changedSequenceCount: changedRecordIndices.count,
+            passes: passes,
+            converged: converged
+        )
+    }
+
+    private static func alignmentScore(in file: StockholmFile, pairs: [BasePair]) -> AlignmentRefinementScore {
+        file.sequenceRows.reduce(
+            AlignmentRefinementScore(canonical: 0, noncanonical: 0, gaps: 0, ambiguous: 0)
+        ) { total, row in
+            let rowScore = refinementScore(
+                rowMetrics(characters: Array(file.records[row.recordIndex].aligned), pairs: pairs)
+            )
+            return AlignmentRefinementScore(
+                canonical: total.canonical + rowScore.canonical,
+                noncanonical: total.noncanonical + rowScore.noncanonical,
+                gaps: total.gaps + rowScore.gaps,
+                ambiguous: total.ambiguous + rowScore.ambiguous
+            )
+        }
+    }
+
+    private static func refinementScore(_ metrics: RowStemMetrics) -> AlignmentRefinementScore {
+        AlignmentRefinementScore(
+            canonical: metrics.canonical,
+            noncanonical: metrics.noncanonical,
+            gaps: metrics.gaps,
+            ambiguous: metrics.ambiguous
+        )
+    }
+
+    private static func replacing(
+        _ total: AlignmentRefinementScore,
+        rowScore old: AlignmentRefinementScore,
+        with new: AlignmentRefinementScore
+    ) -> AlignmentRefinementScore {
+        AlignmentRefinementScore(
+            canonical: total.canonical - old.canonical + new.canonical,
+            noncanonical: total.noncanonical - old.noncanonical + new.noncanonical,
+            gaps: total.gaps - old.gaps + new.gaps,
+            ambiguous: total.ambiguous - old.ambiguous + new.ambiguous
+        )
+    }
+
+    private static func isPreferred(_ lhs: StemEditSuggestion, over rhs: StemEditSuggestion) -> Bool {
+        if lhs.canonicalGain != rhs.canonicalGain { return lhs.canonicalGain > rhs.canonicalGain }
+        if lhs.after.noncanonical != rhs.after.noncanonical { return lhs.after.noncanonical < rhs.after.noncanonical }
+        if lhs.after.gaps != rhs.after.gaps { return lhs.after.gaps < rhs.after.gaps }
+        if lhs.linked != rhs.linked { return lhs.linked && !rhs.linked }
+        return lhs.id < rhs.id
     }
 
     private static func rowMetrics(characters: [Character], pairs: [BasePair]) -> RowStemMetrics {
@@ -552,5 +778,45 @@ enum StemEditSuggester {
 
     private static func string(at columns: [Int], in characters: [Character]) -> String {
         String(columns.map { characters.indices.contains($0) ? characters[$0] : " " })
+    }
+
+    private static func shifted(_ aligned: String, moves: [Int: Int]) -> String? {
+        guard !moves.isEmpty else { return nil }
+        let characters = Array(aligned)
+        let sources = Set(moves.keys)
+        let destinations = Array(moves.values)
+        guard Set(destinations).count == destinations.count,
+              sources.allSatisfy({ characters.indices.contains($0) }),
+              destinations.allSatisfy({ characters.indices.contains($0) }),
+              Set(destinations).subtracting(sources).allSatisfy({ StockholmFile.isGap(characters[$0]) }) else { return nil }
+        var result = characters
+        for source in sources { result[source] = "-" }
+        for (source, destination) in moves { result[destination] = characters[source] }
+        let candidate = String(result)
+        return candidate == aligned ? nil : candidate
+    }
+
+    private static func openingGap(in aligned: String, at column: Int) -> String? {
+        var characters = Array(aligned)
+        guard characters.indices.contains(column),
+              let downstreamGap = ((column + 1)..<characters.count).first(where: { StockholmFile.isGap(characters[$0]) }) else { return nil }
+        characters.remove(at: downstreamGap)
+        characters.insert("-", at: column)
+        let candidate = String(characters)
+        return candidate == aligned ? nil : candidate
+    }
+
+    private static func closingGap(in aligned: String, at column: Int) -> String? {
+        var characters = Array(aligned)
+        guard characters.indices.contains(column), StockholmFile.isGap(characters[column]) else { return nil }
+        let downstreamGap = ((column + 1)..<characters.count).first(where: { StockholmFile.isGap(characters[$0]) }) ?? characters.count
+        characters.remove(at: column)
+        characters.insert("-", at: min(downstreamGap, characters.count))
+        let candidate = String(characters)
+        return candidate == aligned ? nil : candidate
+    }
+
+    private static func ungappedResidues(in aligned: String) -> String {
+        String(aligned.filter { !(StockholmFile.isGap($0) || $0 == "_" || $0 == " ") })
     }
 }

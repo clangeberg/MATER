@@ -38,6 +38,7 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Explicit sequence-editing unlock for intentional residue corrections, with persistent comparison against the opened file
 - Collapsible Structural Quality Inspector with per-stem support metrics, residue-pair counts, pair-by-pair summaries, and clickable observations
 - Gap-only suggested stem fixes with before/after arm previews and canonical/noncanonical/gap deltas
+- One-click whole-alignment auto-refinement that iterates safe gap-only improvements to a local fixed point, writes a new Stockholm file, and leaves the source untouched
 - Display-only sequence filtering and sorting by selected-stem pairing violations, name, violation count, or alignment-wide gap fraction
 - Column-aligned structure overview with matching colored blocks for each stem arm and dashed outlines for pseudoknots
 - Combined structure/entropy/gap/pair-violation overview for direct comparison and rapid navigation across large alignments
@@ -88,6 +89,7 @@ Audit the included Rfam examples with:
 - Keep **Alignment locked** for normal curation. Gap movement and annotations remain editable, while residue replacement, insertion, deletion, and sequence reordering are protected.
 - Select a stem to populate the **Quality Inspector**; click a reported problem to jump to that sequence and pair.
 - Use **Suggest fixes** to preview adjacent, width-preserving gap transfers that improve the selected sequence's stem without changing its ungapped residues.
+- Use **Auto-refine copy** to scan every sequence and annotated stem, write a uniquely named `*-MATER-refined.sto`, and open it without approving individual edits. Automatic mode never decreases total canonical support or increases definite noncanonical observations.
 - Click or drag in the combined structure and analysis overview to navigate long alignments; matching block colors identify paired stem arms.
 - Type an IUPAC nucleotide to replace selected sequence cells.
 - Delete replaces sequence cells with `-` and annotation cells with `.`.

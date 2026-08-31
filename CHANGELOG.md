@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add one-click **Auto-refine copy** for iterative, alignment-wide gap-only structural refinement without per-edit approval.
+- Preserve the original alignment, write and open a uniquely named refined Stockholm file, and retain exact ungapped sequence integrity.
+- Require every automatic edit to maintain or improve alignment-wide canonical support without increasing definite noncanonical observations; gaps and ambiguity remain descriptive rather than optimization failures.
+
 ## 0.6.1
 
 - Add a comprehensive user guide covering operation, calculations, workflows, limitations, and troubleshooting.

@@ -588,6 +588,31 @@ Applying a suggestion:
 
 Review every suggestion biologically. Local canonical-pair improvement does not prove homology, structural conservation, or a globally optimal alignment.
 
+### 13.5 Automatic whole-alignment refinement
+
+**Auto-refine copy** performs the same class of width-preserving, gap-only operations without asking for approval after each proposal. It is intended for quickly generating a conservative candidate alignment that can be compared with the original.
+
+When the current document has a file location, one click:
+
+1. Scans every sequence row, every stem in every `SS_cons*` layer, and both arms of each stem.
+2. Tests one-column arm shifts, optional linked-arm shifts, and nearby gap opening/closing operations.
+3. Applies the strongest safe edit for each sequence, recalculating against the already-refined working copy rather than applying stale proposals.
+4. Repeats complete passes until no supported move can improve the structural objective, or until the 100-pass safety limit is reached.
+5. Writes a new file beside the source as `NAME-MATER-refined.sto` and opens it. If that name exists, MATER adds `-2`, `-3`, and so on; it never overwrites the source or an earlier result.
+
+For a new unsaved document, MATER asks where to write the refined copy.
+
+Every automatically accepted edit must satisfy all of these conditions:
+
+- The exact ordered ungapped sequence set is unchanged.
+- The alignment-wide number of canonical AU/UA/GC/CG/GU/UG observations does not decrease.
+- The alignment-wide number of definite noncanonical observations does not increase.
+- At least one of those two structural measures improves.
+
+Gap and ambiguity counts are used only as tie-breakers. They are not automatic failure terms because missing stems, fragments, ambiguity, and genuine structural subtypes may be biologically valid. `SS_cons*` annotations, alignment width, sequence names, and Stockholm metadata are not rewritten.
+
+Here, **fully refined** means a local fixed point for MATER's supported adjacent gap moves under the stated safety rule. It does not mean a globally optimal multiple-sequence alignment, a newly inferred structure, or proof that every accepted register is biologically correct. The original file is deliberately retained so the two alignments can be compared.
+
 ## 14. Large-alignment overview, filters, and sorting
 
 The bottom overview shares one horizontal coordinate system across four tracks:
@@ -808,6 +833,10 @@ A Quality Inspector filter is active. Choose **Show all sequences** or set Filte
 
 Select a sequence cell in a recognized stem. An empty result means the local one-column and nearby gap-transfer search found no integrity-safe improvement under its ranking rules. It does not mean the alignment is optimal.
 
+### What does Auto-refine copy change?
+
+Only gap placement in sequence rows. It does not change ungapped residues, row order, structure annotations, alignment width, or metadata. The original document remains open and untouched; the refined result is written and opened as a separate file. A result with zero edits means no supported move satisfied the automatic safety rule, not that the alignment is biologically perfect.
+
 ### Why will a shift not move?
 
 A destination outside the selected block is occupied in at least one selected sequence. Linked stem shifting requires compatible gaps beside both arms. Open a gap, reduce the row selection, or temporarily unlink the arms if biologically appropriate.
@@ -848,7 +877,7 @@ Version 0.6.1 alpha intentionally has a bounded scope:
 - No statistical covariation significance calculation
 - No covariance-model building/searching
 - No automatic sequence addition, removal, renaming, or phylogenetic tree editor
-- Suggested edits are local, one-column, gap-only candidates rather than global realignment
+- Suggested and automatic edits use iterative local, one-column, gap-only candidates rather than a global realignment algorithm
 - GUI pair creation provides four pseudoknot layers beyond primary, although more existing WUSS letter classes are parsed
 - Compact structural-problem heatmap is not yet included in PDF/SVG export
 - No built-in automatic updater or crash-reporting service

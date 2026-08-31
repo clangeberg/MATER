@@ -14,6 +14,7 @@ struct CoreTestMain {
         verifiesSequenceIntegrity()
         calculatesStructuralQuality()
         suggestsSafeStemImprovements()
+        refinesEntireAlignmentWithoutChangingSequences()
         alignmentEditingKeepsRowsSynchronized()
         advancedGapAndRectangularEditing()
         stemAwareAndLinkedArmShifting()
@@ -38,6 +39,14 @@ struct CoreTestMain {
             let errors = file.validationIssues.filter { $0.severity == .error }
             expect(errors.isEmpty, "\(path): \(errors.map(\.message).joined(separator: "; "))")
             print("Audited \(URL(fileURLWithPath: path).lastPathComponent): \(file.sequenceRows.count) sequences × \(file.alignmentLength) columns, \(file.structureRows.count) structure layer(s)")
+            if ProcessInfo.processInfo.environment["MATER_REFINE_AUDIT"] == "1" {
+                let started = Date()
+                let result = StemEditSuggester.refineEntireAlignment(in: file, preferLinked: true)
+                expect(SequenceIntegrityAnalyzer.preservesSequences(from: file, to: result.file), "auto-refinement changed ungapped sequences in \(path)")
+                expect(result.after.canonical >= result.before.canonical, "auto-refinement reduced canonical support in \(path)")
+                expect(result.after.noncanonical <= result.before.noncanonical, "auto-refinement increased violations in \(path)")
+                print("Auto-refined \(URL(fileURLWithPath: path).lastPathComponent): \(result.editCount) edits across \(result.changedSequenceCount) sequences in \(result.passes) passes and \(String(format: "%.2f", Date().timeIntervalSince(started))) s; converged=\(result.converged)")
+            }
         } catch {
             expect(false, "could not read \(path): \(error)")
         }
@@ -258,6 +267,30 @@ struct CoreTestMain {
         var proposed = file
         proposed.records[suggestion.recordIndex].aligned = suggestion.proposedAligned
         expect(SequenceIntegrityAnalyzer.preservesSequences(from: file, to: proposed), "suggestion changed the ungapped sequence")
+    }
+
+    private static func refinesEntireAlignmentWithoutChangingSequences() {
+        let file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        needs_au -A--U-
+        needs_gc -G--C-
+        aligned  A---U-
+        #=GC SS_cons <...>.
+        //
+        """)
+        let result = StemEditSuggester.refineEntireAlignment(in: file, preferLinked: true)
+        expect(result.converged, "whole-alignment refinement did not converge")
+        expect(result.editCount == 2, "whole-alignment refinement should apply two gap-only improvements")
+        expect(result.changedSequenceCount == 2, "whole-alignment changed-sequence count")
+        expect(result.before.canonical == 1 && result.after.canonical == 3, "whole-alignment canonical gain")
+        expect(result.after.noncanonical <= result.before.noncanonical, "whole-alignment refinement introduced pairing violations")
+        expect(SequenceIntegrityAnalyzer.preservesSequences(from: file, to: result.file), "whole-alignment refinement changed ungapped sequences")
+        expect(result.file.records[result.file.sequenceRows[0].recordIndex].aligned == "A---U-", "AU row was not refined")
+        expect(result.file.records[result.file.sequenceRows[1].recordIndex].aligned == "G---C-", "GC row was not refined")
+        expect(file.records[file.sequenceRows[0].recordIndex].aligned == "-A--U-", "source alignment was mutated")
+
+        let secondPass = StemEditSuggester.refineEntireAlignment(in: result.file, preferLinked: true)
+        expect(secondPass.converged && secondPass.editCount == 0, "refined alignment should be a local fixed point")
     }
 
     private static func alignmentEditingKeepsRowsSynchronized() {

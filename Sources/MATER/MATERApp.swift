@@ -4,7 +4,7 @@ import SwiftUI
 struct MATERApp: App {
     var body: some Scene {
         DocumentGroup(newDocument: { StockholmDocument() }) { configuration in
-            DocumentEditorView(document: configuration.document)
+            DocumentEditorView(document: configuration.document, sourceURL: configuration.fileURL)
         }
         .commands {
             CommandGroup(after: .textEditing) {

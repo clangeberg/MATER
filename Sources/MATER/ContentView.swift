@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DocumentEditorView: View {
     @ObservedObject var document: StockholmDocument
+    let sourceURL: URL?
     @StateObject private var state = EditorState()
     @StateObject private var residuePalette = ResiduePaletteSettings()
     @State private var searchText = ""
@@ -10,6 +11,7 @@ struct DocumentEditorView: View {
     @State private var exportConfiguration = AlignmentExportConfiguration()
     @State private var suggestedEdits: [StemEditSuggestion] = []
     @State private var showingSuggestedEdits = false
+    @State private var isAutoRefining = false
     @FocusState private var searchFieldFocused: Bool
     @Environment(\.undoManager) private var undoManager
 
@@ -202,6 +204,18 @@ struct DocumentEditorView: View {
                 }
                 .disabled(state.selectingConsensus || !document.analysis.rows.indices.contains(state.selectedRow) || !document.analysis.rows[state.selectedRow].kind.isSequence)
                 .help("Preview gap-only shifts that improve the selected sequence's current stem.")
+                Button(action: autoRefineAlignmentCopy) {
+                    if isAutoRefining {
+                        HStack(spacing: 5) {
+                            ProgressView().controlSize(.mini)
+                            Text("Refining…")
+                        }
+                    } else {
+                        Label("Auto-refine copy", systemImage: "sparkles")
+                    }
+                }
+                .disabled(isAutoRefining || document.analysis.structurePairs.isEmpty)
+                .help("Create and open a new alignment after automatically applying every safe gap-only structural improvement to convergence. The current file is not changed.")
             }
 
             HStack(spacing: 10) {
@@ -403,6 +417,73 @@ struct DocumentEditorView: View {
         state.selectColumns(suggestion.primaryDestinationColumns, row: suggestion.modelRow)
         state.statusMessage = "Applied a gap-only stem improvement to \(suggestion.sequenceName). Undo is available."
         showingSuggestedEdits = false
+    }
+
+    private func autoRefineAlignmentCopy() {
+        guard !isAutoRefining else { return }
+        guard !document.analysis.structurePairs.isEmpty else {
+            state.statusMessage = "Auto-refinement requires at least one recognized SS_cons pair."
+            NSSound.beep()
+            return
+        }
+        guard let outputURL = autoRefinementOutputURL() else { return }
+
+        let source = document.file
+        let preferLinked = state.linkPairedStemShifts
+        isAutoRefining = true
+        state.statusMessage = "Auto-refining every sequence and annotated stem… The current alignment remains unchanged."
+
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                StemEditSuggester.refineEntireAlignment(
+                    in: source,
+                    preferLinked: preferLinked,
+                    maximumPasses: 100
+                )
+            }.value
+
+            do {
+                try result.file.rendered.write(to: outputURL, atomically: true, encoding: .utf8)
+                isAutoRefining = false
+                let convergenceText = result.converged ? "converged" : "reached the 100-pass safety limit"
+                state.statusMessage = "Created \(outputURL.lastPathComponent): \(result.editCount) gap edit\(result.editCount == 1 ? "" : "s") across \(result.changedSequenceCount) sequence\(result.changedSequenceCount == 1 ? "" : "s"); \(convergenceText)."
+                NSWorkspace.shared.open(outputURL)
+            } catch {
+                isAutoRefining = false
+                state.statusMessage = "Could not write the refined alignment: \(error.localizedDescription)"
+                let alert = NSAlert()
+                alert.messageText = "Could not create the refined alignment"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .critical
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
+    }
+
+    private func autoRefinementOutputURL() -> URL? {
+        guard let sourceURL else {
+            let panel = NSSavePanel()
+            panel.title = "Save Auto-Refined Alignment"
+            panel.prompt = "Refine and Save"
+            panel.allowedContentTypes = [.stockholmAlignment]
+            panel.canCreateDirectories = true
+            panel.nameFieldStringValue = "MATER-refined.sto"
+            return panel.runModal() == .OK ? panel.url : nil
+        }
+
+        let directory = sourceURL.deletingLastPathComponent()
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let sourceExtension = sourceURL.pathExtension.isEmpty ? "sto" : sourceURL.pathExtension
+        var suffix = ""
+        var counter = 2
+        while true {
+            let filename = "\(baseName)-MATER-refined\(suffix).\(sourceExtension)"
+            let candidate = directory.appendingPathComponent(filename)
+            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            suffix = "-\(counter)"
+            counter += 1
+        }
     }
 
     private var selectionInspectorText: String {
