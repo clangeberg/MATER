@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 0.6.1 alpha • macOS 13 or newer**
+**MATER version 0.7.0 alpha 1 • macOS 13 or newer**
 
 Manual revision: 30 August 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.6.1.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.7.0 alpha 1.
 
 > **Alpha safety rule:** Work on a duplicate of an important alignment until MATER has been validated on your own files. Keep **Alignment locked** during normal curation.
 
@@ -67,12 +67,12 @@ In this guide:
 
 ### 2.2 Installing an alpha ZIP
 
-1. Unzip `MATER-0.6.1-macOS-universal.zip`.
+1. Unzip `MATER-0.7.0-alpha.1-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 0.6.1 is ad-hoc signed and is not Apple-notarized. This is acceptable for a supervised alpha but produces more Gatekeeper friction than a Developer ID-signed, notarized release.
+Version 0.7.0 alpha 1 is ad-hoc signed and is not Apple-notarized. This is acceptable for a supervised alpha but produces more Gatekeeper friction than a Developer ID-signed, notarized release.
 
 ### 2.3 Opening an alignment
 
@@ -867,7 +867,7 @@ No. Use an appropriate external tool such as R-scape for statistical support. MA
 
 ## 23. Current limitations
 
-Version 0.6.1 alpha intentionally has a bounded scope:
+Version 0.7.0 alpha 1 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
@@ -971,7 +971,7 @@ dist/MATER.app
 
 A concise methods statement for work performed with this alpha is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.6.1. Ungapped sequence integrity was protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.7.0-alpha.1. Ungapped sequence integrity was protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
 If MATER materially contributed to a published analysis, also state which external method, if any, was used to test covariation or structural support.
 

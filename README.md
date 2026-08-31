@@ -6,7 +6,7 @@
 
 ## Install
 
-1. Download `MATER-0.6.1-macOS-universal.zip` from the [latest release](https://github.com/clangeberg/MATER/releases/latest).
+1. Download `MATER-0.7.0-alpha.1-macOS-universal.zip` from the [closed-alpha pre-release](https://github.com/clangeberg/MATER/releases/tag/v0.7.0-alpha.1).
 2. Unzip it and drag `MATER.app` into Applications.
 3. On first launch, right-click the app and choose **Open**. If macOS still blocks it, allow MATER under **System Settings → Privacy & Security** and open it again.
 

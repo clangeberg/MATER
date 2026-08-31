@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0-alpha.1 — 2026-08-30
 
 - Add one-click **Auto-refine copy** for iterative, alignment-wide gap-only structural refinement without per-edit approval.
 - Preserve the original alignment, write and open a uniquely named refined Stockholm file, and retain exact ungapped sequence integrity.
