@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 0.8.0 alpha 1 • macOS 13 or newer**
+**MATER version 0.8.1 • macOS 13 or newer**
 
-Manual revision: 31 August 2026
+Manual revision: 1 September 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.8.0 alpha 1.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.8.1.
 
 > **Alpha safety rule:** Work on a duplicate of an important alignment until MATER has been validated on your own files. Keep **Alignment locked** during normal curation.
 
@@ -27,7 +27,7 @@ This manual is both a tutorial and a reference. New users should read Sections 1
 11. [Calculated consensus and analysis tracks](#11-calculated-consensus-and-analysis-tracks)
 12. [Structural Quality Inspector](#12-structural-quality-inspector)
 13. [Suggested edits](#13-suggested-edits)
-14. [Optional R-scape analysis](#14-optional-r-scape-analysis)
+14. [Optional R-scape workflows](#14-optional-r-scape-workflows)
 15. [Large-alignment overview, filters, and sorting](#15-large-alignment-overview-filters-and-sorting)
 16. [Search and problem navigation](#16-search-and-problem-navigation)
 17. [Change tracking and recovery](#17-change-tracking-and-recovery)
@@ -68,12 +68,12 @@ In this guide:
 
 ### 2.2 Installing an alpha ZIP
 
-1. Unzip `MATER-0.8.0-alpha.1-macOS-universal.zip`.
+1. Unzip `MATER-0.8.1-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 0.8.0 alpha 1 is ad-hoc signed and is not Apple-notarized. This is acceptable for a supervised alpha but produces more Gatekeeper friction than a Developer ID-signed, notarized release.
+Version 0.8.1 is ad-hoc signed and is not Apple-notarized. This is acceptable for a supervised alpha but produces more Gatekeeper friction than a Developer ID-signed, notarized release.
 
 ### 2.3 Opening an alignment
 
@@ -640,9 +640,9 @@ Applying a suggestion:
 
 Review every suggestion biologically. Local canonical-pair improvement does not prove homology, structural conservation, or a globally optimal alignment.
 
-### 13.5 Automatic whole-alignment refinement
+### 13.5 Wiggle-refine whole-alignment refinement
 
-**Auto-refine copy** performs conservative width-preserving, gap-only operations without asking for approval after each proposal. It is intended for quickly generating a candidate alignment that can be compared with the original.
+**Wiggle-refine** performs conservative width-preserving, gap-only operations without asking for approval after each proposal. It is intended for quickly generating a candidate alignment that can be compared with the original. The name distinguishes MATER's local alignment-register adjustments from structure inference by an external method.
 
 When the current document has a file location, one click:
 
@@ -650,7 +650,7 @@ When the current document has a file location, one click:
 2. Tests one-column arm shifts, optional linked-arm shifts, nearby gap opening/closing operations, and coordinated complete-arm window shifts across each helix and its up-to-three-column flanks.
 3. Applies the strongest safe edit, then immediately rescans that sequence so several necessary gap moves can accumulate in one pass rather than relying on stale proposals.
 4. Repeats complete passes until no supported move can improve the structural objective, or until the 100-pass safety limit is reached.
-5. Writes a new file beside the source as `NAME-MATER-refined.sto` and opens it. If that name exists, MATER adds `-2`, `-3`, and so on; it never overwrites the source or an earlier result.
+5. Writes a new file beside the source as `NAME-MATER-wiggle-refined.sto` and opens it as a new MATER document. If that name exists, MATER adds `-2`, `-3`, and so on; it never overwrites the source or an earlier result.
 
 For a new unsaved document, MATER asks where to write the refined copy.
 
@@ -663,19 +663,22 @@ Every automatically accepted edit must satisfy all of these conditions:
 
 Gap and ambiguity counts are descriptive only and are not optimization terms. Missing stems, fragments, ambiguity, and genuine structural subtypes may be biologically valid. The leave-one-out neighboring profile is used only to choose among structurally improving automatic candidates; profile gain alone cannot cause an automatic edit. `SS_cons*` annotations, alignment width, sequence names, and Stockholm metadata are not rewritten.
 
-Here, **fully refined** means a local fixed point for MATER's supported one-column and coordinated helix-arm window moves under the stated safety rule. Automatic mode iterates one-column complete-arm shifts; the previewed manual search additionally considers the larger bounded residue/gap redistribution set described above. It does not mean a globally optimal multiple-sequence alignment, a newly inferred structure, or proof that every accepted register is biologically correct. The original file is deliberately retained so the two alignments can be compared.
+Here, **fully refined** means a local fixed point for MATER's supported one-column and coordinated helix-arm window moves under the stated safety rule. Wiggle-refine iterates one-column complete-arm shifts; the previewed manual search additionally considers the larger bounded residue/gap redistribution set described above. It does not mean a globally optimal multiple-sequence alignment, a newly inferred structure, or proof that every accepted register is biologically correct. The original file is deliberately retained so the two alignments can be compared.
 
-## 14. Optional R-scape analysis
+## 14. Optional R-scape workflows
 
-MATER can run an external R-scape installation to test the current annotated structure for statistically significant covariation. It uses R-scape's evaluate-given-structure mode; it does not run CaCoFold or replace the current `SS_cons*` annotations.
+MATER provides two independent workflows through a separately installed R-scape:
+
+- **Run R-scape** evaluates the current annotated structure for statistically significant covariation and retains its tables, log, and R2R drawing.
+- **CaCoFold-refine** asks R-scape/CaCoFold to improve the given structure and retains only a new Stockholm alignment. It does not alter the open source document.
 
 ### 14.1 Requirements and executable discovery
 
-Install R-scape separately, including the R2R and Perl components needed for schematic rendering. Click **Run R-scape** in MATER's main toolbar. MATER checks a previously selected location, its own process `PATH`, and common Homebrew/local binary folders for `R-scape` or `r-scape`.
+Install R-scape separately. R2R and Perl are needed for the **Run R-scape** schematic but are not required for the no-figure **CaCoFold-refine** result. When either action is selected, MATER checks a previously selected location, its own process `PATH`, and common Homebrew/local binary folders for `R-scape` or `r-scape`.
 
 An app opened from Finder does not normally inherit the customized `PATH` used by an interactive Terminal shell. Therefore, `R-scape -h` can work in Terminal even when automatic app discovery fails. This is expected macOS behavior, not evidence that the R-scape binary itself is broken.
 
-If no executable is found, MATER opens a nonfatal results panel explaining the problem. Click **Locate R-scape…** and select any of these:
+If no executable is found, MATER either opens a nonfatal results panel for **Run R-scape** or presents a file chooser for **CaCoFold-refine**. Use **Locate R-scape…** or the chooser to select any of these:
 
 - The installed `bin/R-scape` executable
 - The distribution's `bin` folder
@@ -684,7 +687,7 @@ If no executable is found, MATER opens a nonfatal results panel explaining the p
 
 The installed `bin` copy is preferred when it sits beside an executable R2R companion. MATER remembers the resolved path for later sessions. The alignment remains open and editable if R-scape is absent, invalid, or fails.
 
-### 14.2 What MATER runs
+### 14.2 Statistical evaluate-given-structure command
 
 The current in-memory alignment—not merely the last saved version—is written to an exact input snapshot. Validation errors must be fixed and at least one recognized `SS_cons*` pair must exist. MATER then invokes the equivalent of:
 
@@ -713,7 +716,23 @@ For a saved alignment, MATER creates a unique sibling folder named `NAME-MATER-R
 
 Buttons below the preview open the full PDF, pair table, power table, or results folder. Pair and power tables open explicitly as plain text in Apple TextEdit, so macOS does not search the App Store for programs associated with the scientific `.cov` and `.power` extensions. MATER accepts a run as usable when the `.cov` table and R2R PDF exist. Some R-scape installations report optional RFview or gnuplot warnings after producing those required outputs; MATER retains the results and surfaces a warning linked to the log rather than discarding valid files.
 
-### 14.4 Summary values and interpretation
+### 14.4 CaCoFold structure refinement
+
+Click **CaCoFold-refine** to improve the current given structure. MATER first requires a valid Stockholm alignment with at least one recognized `SS_cons*` pair, then invokes the equivalent of:
+
+```text
+R-scape -s --cacofold --nofigures --onemsa --outdir TEMPORARY_DIRECTORY --outname NAME INPUT.sto
+```
+
+`-s` evaluates the supplied structure and `--cacofold` runs CaCoFold's structure-improvement workflow. `--nofigures` is deliberate: this button is for producing the improved alignment, not an additional analysis bundle. The R-scape process runs inside a private writable temporary directory so its FastTree and other internal files work from a Finder-launched MATER app.
+
+On success, MATER validates the generated `.cacofold.sto`, writes it beside the source as `NAME-MATER-CaCoFold-refined.sto`, and opens it as a new MATER document. Existing names receive `-2`, `-3`, and so on. For an unsaved document, MATER asks for a destination. The source document is never overwritten. CaCoFold may emit new or revised `SS_cons*` layers, including additional structure annotations; MATER displays every recognized layer and its pseudoknots normally.
+
+All other CaCoFold/R-scape products remain in the private run directory and are deleted after the improved Stockholm text is captured. If the run fails, MATER shows R-scape's concise diagnostics and leaves the current alignment usable. Use the separate **Run R-scape** button when you want retained `.cov`, `.power`, log, PDF, and SVG results.
+
+CaCoFold-refine changes the proposed consensus structure and may add supported helices. It is an external computational proposal, not a guarantee of biological correctness. Compare the new document with the source and inspect subtype occupancy before adopting it.
+
+### 14.5 Summary values and interpretation
 
 MATER counts a `.cov` data row as one significant pair and counts rows beginning with `*` as significant pairs belonging to the submitted structure. From `.power`, it reports the number of annotated pairs and R-scape's expected and observed numbers of covarying pairs. These values are parsed summaries of R-scape output, not statistics recalculated by MATER.
 
@@ -941,9 +960,13 @@ A Quality Inspector filter is active. Choose **Show all sequences** or set Filte
 
 Select a sequence cell in a recognized stem. An empty result means the one-column, linked-arm, and bounded helix-neighborhood search found no integrity-safe structural or profile improvement under its rules. A largely unoccupied arm is intentionally excluded from broad helix optimization because it may represent a structural subtype. An empty result does not mean the alignment is globally optimal.
 
-### What does Auto-refine copy change?
+### What does Wiggle-refine change?
 
-Only gap placement in sequence rows. It can coordinate both complete arms of a helix and their up-to-three-column flanks, but it does not change ungapped residues, row order, structure annotations, alignment width, or metadata. Gapped structural variants are not penalized. The original document remains open and untouched; the refined result is written and opened as a separate file. A result with zero edits means no supported move satisfied the automatic safety rule, not that the alignment is biologically perfect.
+Only gap placement in sequence rows. It can coordinate both complete arms of a helix and their up-to-three-column flanks, but it does not change ungapped residues, row order, structure annotations, alignment width, or metadata. Gapped structural variants are not penalized. The original document remains open and untouched; the refined result is written and opened as a separate MATER document. A result with zero edits means no supported move satisfied the automatic safety rule, not that the alignment is biologically perfect.
+
+### What does CaCoFold-refine change?
+
+It submits a snapshot of the current alignment and given `SS_cons*` structure to the separately installed R-scape/CaCoFold workflow. The retained result may contain revised or additional consensus-structure layers, but the original MATER document is never modified. Only the generated `NAME-MATER-CaCoFold-refined.sto` is retained; temporary tables, drawings, logs, and other intermediates are deleted. Use **Run R-scape** separately when those analysis products are needed.
 
 ### Why will a shift not move?
 
@@ -985,15 +1008,19 @@ Yes, through a separately installed R-scape. Click **Run R-scape** to use its ev
 
 MATER does not bundle R-scape, and Finder does not inherit Terminal's customized `PATH`. Install R-scape separately, then click **Locate R-scape…** and choose its installed executable, `bin` folder, or installation folder. If you choose `src/R-scape`, MATER searches the sibling `bin` folder and prefers that installed copy beside R2R. If the statistical table is produced but the drawing is missing, check that the installation's R2R and Perl components are executable. The run log in the results folder contains the exact command and diagnostics.
 
+### Why does CaCoFold-refine say R-scape is unavailable?
+
+The same Finder `PATH` rule applies. In the chooser, select the executable that responds to `R-scape -h` in Terminal, its `bin` directory, or the top-level R-scape installation directory. CaCoFold-refine uses `--nofigures`, so a missing R2R drawing program does not by itself prevent the refined Stockholm output. A nonzero R-scape exit is reported without crashing MATER or changing the source document.
+
 ## 24. Current limitations
 
-Version 0.8.0 alpha 1 intentionally has a bounded scope:
+Version 0.8.1 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
 - One Stockholm alignment per file; wrapped/interleaved rows are accepted but saved in normalized single-block form
 - No de novo multiple-sequence alignment or profile alignment
-- No structure prediction or thermodynamic folding
+- No built-in structure prediction or thermodynamic folding; CaCoFold-refine is available only through a separately installed R-scape
 - Statistical covariation analysis requires a separate compatible R-scape/R2R installation; MATER does not bundle, update, or reimplement it
 - No covariance-model building/searching
 - No automatic sequence addition, removal, renaming, or phylogenetic tree editor
@@ -1096,9 +1123,9 @@ dist/MATER.app
 
 A concise methods statement for work performed with this alpha is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.8.0-alpha.1. Ungapped sequence integrity was protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.8.1. Ungapped sequence integrity was protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
-If the optional integration was used, also report the independently installed R-scape version, its evaluate-given-structure mode, and the retained command/log and output files. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
+If the optional integration was used, also report the independently installed R-scape version and whether **Run R-scape** evaluate-given-structure analysis or **CaCoFold-refine** was used. For statistical analysis, preserve and report the retained command/log and output files. For CaCoFold-refine, preserve the source and refined Stockholm files and report R-scape's version because MATER deliberately discards the intermediate run products. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
 
 ### 28.2 Software citation before a formal paper
 

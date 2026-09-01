@@ -198,7 +198,7 @@ struct RScapeResultsPanel: View {
                 HStack {
                     Button("Run Again", action: runAgain)
                     Spacer()
-                    Text("Given structure (`-s`); no CaCoFold prediction")
+                    Text("Statistical given-structure test (`-s`); separate from CaCoFold-refine")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

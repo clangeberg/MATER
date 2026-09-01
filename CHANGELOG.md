@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.1 — 2026-09-01
+
+- Rename **Auto-refine copy** to **Wiggle-refine** and write results as unique `*-MATER-wiggle-refined.sto` files.
+- Add **CaCoFold-refine**, which runs a separately installed R-scape with `-s --cacofold`, retains only its improved Stockholm alignment, and deletes all temporary analysis products.
+- Disable CaCoFold figure generation because this focused workflow does not retain drawings, tables, or logs; the full **Run R-scape** analysis remains available separately.
+- Open both refinement results explicitly through MATER's document interface instead of the macOS default plain-text application.
+- Add nonfatal R-scape discovery and executable-selection handling to CaCoFold-refine.
+- Validate the generated CaCoFold Stockholm result before saving and opening it.
+- Add automated disposable-output coverage and an opt-in integration test exercised against R-scape 2.6.16.
+
 ## 0.8.0-alpha.1 — 2026-08-31
 
 - Extend previewed refinement across both complete helix arms and up to three neighboring unpaired columns, using bounded gap redistribution and a leave-one-out GSC-weighted sequence profile.

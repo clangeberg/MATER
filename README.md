@@ -6,7 +6,7 @@
 
 ## Install
 
-1. Download `MATER-0.8.0-alpha.1-macOS-universal.zip` from the [closed-alpha pre-release](https://github.com/clangeberg/MATER/releases/tag/v0.8.0-alpha.1).
+1. Download `MATER-0.8.1-macOS-universal.zip` from the [v0.8.1 closed-alpha release](https://github.com/clangeberg/MATER/releases/tag/v0.8.1).
 2. Unzip it and drag `MATER.app` into Applications.
 3. On first launch, right-click the app and choose **Open**. If macOS still blocks it, allow MATER under **System Settings → Privacy & Security** and open it again.
 
@@ -39,7 +39,8 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Explicit sequence-editing unlock for intentional residue corrections, with persistent comparison against the opened file
 - Collapsible Structural Quality Inspector with per-stem support metrics, residue-pair counts, pair-by-pair summaries, and clickable observations
 - Gap-only suggested stem fixes that optimize both complete helix arms plus up to three neighboring unpaired columns, with before/after previews and structural/profile scoring
-- One-click whole-alignment auto-refinement that iterates safe coordinated helix-arm and neighboring gap improvements to a local fixed point, writes a new Stockholm file, and leaves the source untouched
+- One-click **Wiggle-refine** that iterates safe coordinated helix-arm and neighboring gap improvements to a local fixed point, writes a new Stockholm file, and leaves the source untouched
+- Optional **CaCoFold-refine** through a separately installed R-scape, retaining only the improved Stockholm alignment while discarding intermediate analysis products
 - Optional R-scape evaluate-given-structure (`-s`) integration with retained `.cov` and `.power` tables that open directly in TextEdit, an R2R PDF/SVG drawing, and a closable zoomable PDFKit preview inside MATER; executable, `bin`, and installation-folder selection are supported
 - Display-only sequence filtering and sorting by selected-stem pairing violations, name, violation count, or alignment-wide gap fraction
 - Column-aligned structure overview with matching colored blocks for each stem arm and dashed outlines for pseudoknots
@@ -92,7 +93,8 @@ Audit the included Rfam examples with:
 - Keep **Alignment locked** for normal curation. Gap movement and annotations remain editable, while residue replacement, insertion, deletion, and sequence reordering are protected.
 - Select a stem to populate the **Quality Inspector**; click a reported problem to jump to that sequence and pair.
 - Use **Suggest fixes** to preview width-preserving gap arrangements across both helix arms and their ±3-column unpaired neighborhoods without changing ungapped residues.
-- Use **Auto-refine copy** to scan every sequence and annotated stem, write a uniquely named `*-MATER-refined.sto`, and open it without approving individual edits. Automatic mode never decreases total canonical support or increases definite noncanonical observations; gaps are not treated as failures.
+- Use **Wiggle-refine** to scan every sequence and annotated stem, write a uniquely named `*-MATER-wiggle-refined.sto`, and open it in MATER without approving individual edits. Wiggle-refinement never decreases total canonical support or increases definite noncanonical observations; gaps are not treated as failures.
+- Use **CaCoFold-refine** to run an installed R-scape in evaluate-given-structure CaCoFold mode, write only `*-MATER-CaCoFold-refined.sto`, and open that result in MATER. The original alignment and the separate **Run R-scape** statistical-results workflow are unchanged.
 - Use **Run R-scape** to evaluate the current `SS_cons*` structure with an installed R-scape. Finder apps may not inherit Terminal's PATH; **Locate R-scape…** accepts the executable, `bin` folder, or installation folder and prefers the installed copy beside R2R. MATER also supplies a private writable working directory for R-scape's internal FastTree files.
 - Click or drag in the combined structure and analysis overview to navigate long alignments; matching block colors identify paired stem arms.
 - Type an IUPAC nucleotide to replace selected sequence cells.

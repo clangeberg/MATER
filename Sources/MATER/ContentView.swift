@@ -1,6 +1,32 @@
 import AppKit
 import SwiftUI
 
+private enum AlignmentRefinementKind {
+    case wiggle
+    case caCoFold
+
+    var savePanelTitle: String {
+        switch self {
+        case .wiggle: return "Save Wiggle-Refined Alignment"
+        case .caCoFold: return "Save CaCoFold-Refined Alignment"
+        }
+    }
+
+    var savePanelPrompt: String {
+        switch self {
+        case .wiggle: return "Wiggle-refine and Save"
+        case .caCoFold: return "CaCoFold-refine and Save"
+        }
+    }
+
+    var filenameStem: String {
+        switch self {
+        case .wiggle: return "MATER-wiggle-refined"
+        case .caCoFold: return "MATER-CaCoFold-refined"
+        }
+    }
+}
+
 struct DocumentEditorView: View {
     @ObservedObject var document: StockholmDocument
     let sourceURL: URL?
@@ -11,10 +37,12 @@ struct DocumentEditorView: View {
     @State private var exportConfiguration = AlignmentExportConfiguration()
     @State private var suggestedEdits: [StemEditSuggestion] = []
     @State private var showingSuggestedEdits = false
-    @State private var isAutoRefining = false
+    @State private var isWiggleRefining = false
+    @State private var isCaCoFoldRefining = false
     @StateObject private var rScapeController = RScapeController()
     @FocusState private var searchFieldFocused: Bool
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.openDocument) private var openDocument
 
     var body: some View {
         VStack(spacing: 0) {
@@ -216,18 +244,30 @@ struct DocumentEditorView: View {
                 }
                 .disabled(state.selectingConsensus || !document.analysis.rows.indices.contains(state.selectedRow) || !document.analysis.rows[state.selectedRow].kind.isSequence)
                 .help("Preview gap-only shifts that improve the selected sequence's current stem.")
-                Button(action: autoRefineAlignmentCopy) {
-                    if isAutoRefining {
+                Button(action: wiggleRefineAlignment) {
+                    if isWiggleRefining {
                         HStack(spacing: 5) {
                             ProgressView().controlSize(.mini)
-                            Text("Refining…")
+                            Text("Wiggling…")
                         }
                     } else {
-                        Label("Auto-refine copy", systemImage: "sparkles")
+                        Label("Wiggle-refine", systemImage: "sparkles")
                     }
                 }
-                .disabled(isAutoRefining || document.analysis.structurePairs.isEmpty)
-                .help("Create and open a new alignment after automatically applying safe helix-window and neighboring gap refinements to convergence. The current file is not changed.")
+                .disabled(isWiggleRefining || isCaCoFoldRefining || document.analysis.structurePairs.isEmpty)
+                .help("Create and open a new alignment after applying MATER's safe gap-only helix-window refinements to convergence. The current file is not changed.")
+                Button(action: caCoFoldRefineStructure) {
+                    if isCaCoFoldRefining {
+                        HStack(spacing: 5) {
+                            ProgressView().controlSize(.mini)
+                            Text("CaCoFold…")
+                        }
+                    } else {
+                        Label("CaCoFold-refine", systemImage: "point.3.filled.connected.trianglepath.dotted")
+                    }
+                }
+                .disabled(isWiggleRefining || isCaCoFoldRefining || rScapeController.isRunning || document.analysis.structurePairs.isEmpty)
+                .help("Use an installed R-scape to improve the given structure with CaCoFold, retain only a new Stockholm alignment, and open it in MATER. The current file is not changed.")
                 Button(action: showOrRunRScape) {
                     if rScapeController.isRunning {
                         HStack(spacing: 5) {
@@ -240,7 +280,7 @@ struct DocumentEditorView: View {
                         Label("Run R-scape", systemImage: "waveform.path.ecg")
                     }
                 }
-                .disabled(document.analysis.structurePairs.isEmpty)
+                .disabled(isCaCoFoldRefining || document.analysis.structurePairs.isEmpty)
                 .help("Evaluate the current given SS_cons structure with an installed R-scape `-s` test and show the R2R result in a closable panel.")
             }
 
@@ -448,19 +488,19 @@ struct DocumentEditorView: View {
         showingSuggestedEdits = false
     }
 
-    private func autoRefineAlignmentCopy() {
-        guard !isAutoRefining else { return }
+    private func wiggleRefineAlignment() {
+        guard !isWiggleRefining, !isCaCoFoldRefining else { return }
         guard !document.analysis.structurePairs.isEmpty else {
-            state.statusMessage = "Auto-refinement requires at least one recognized SS_cons pair."
+            state.statusMessage = "Wiggle-refinement requires at least one recognized SS_cons pair."
             NSSound.beep()
             return
         }
-        guard let outputURL = autoRefinementOutputURL() else { return }
+        guard let outputURL = refinementOutputURL(kind: .wiggle) else { return }
 
         let source = document.file
         let preferLinked = state.linkPairedStemShifts
-        isAutoRefining = true
-        state.statusMessage = "Auto-refining every sequence and annotated stem… The current alignment remains unchanged."
+        isWiggleRefining = true
+        state.statusMessage = "Wiggle-refining every sequence and annotated stem… The current alignment remains unchanged."
 
         Task {
             let result = await Task.detached(priority: .userInitiated) {
@@ -473,19 +513,75 @@ struct DocumentEditorView: View {
 
             do {
                 try result.file.rendered.write(to: outputURL, atomically: true, encoding: .utf8)
-                isAutoRefining = false
+                isWiggleRefining = false
                 let convergenceText = result.converged ? "converged" : "reached the 100-pass safety limit"
                 state.statusMessage = "Created \(outputURL.lastPathComponent): \(result.editCount) gap edit\(result.editCount == 1 ? "" : "s") across \(result.changedSequenceCount) sequence\(result.changedSequenceCount == 1 ? "" : "s"); \(convergenceText)."
-                NSWorkspace.shared.open(outputURL)
+                await openGeneratedStockholm(outputURL)
             } catch {
-                isAutoRefining = false
+                isWiggleRefining = false
                 state.statusMessage = "Could not write the refined alignment: \(error.localizedDescription)"
-                let alert = NSAlert()
-                alert.messageText = "Could not create the refined alignment"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .critical
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
+                presentAlert(
+                    title: "Could not create the Wiggle-refined alignment",
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func caCoFoldRefineStructure() {
+        guard !isWiggleRefining, !isCaCoFoldRefining else { return }
+        let errors = document.analysis.validationIssues.filter { $0.severity == .error }
+        guard errors.isEmpty else {
+            let message = "Fix the Stockholm validation errors before running CaCoFold. "
+                + errors.prefix(3).map(\.message).joined(separator: " ")
+            state.statusMessage = "CaCoFold-refinement requires a valid Stockholm alignment."
+            presentAlert(title: "Cannot run CaCoFold-refine", message: message)
+            return
+        }
+        guard !document.analysis.structurePairs.isEmpty else {
+            state.statusMessage = "CaCoFold-refinement requires at least one recognized SS_cons pair."
+            NSSound.beep()
+            return
+        }
+
+        let executableURL: URL
+        if let located = RScapeExecutableLocator.locate() {
+            executableURL = located
+        } else {
+            guard let selected = chooseRScapeExecutable(
+                message: "CaCoFold-refine requires a separately installed R-scape. Select its executable, bin folder, or installation folder."
+            ) else {
+                state.statusMessage = "CaCoFold-refinement was not started because R-scape is not available."
+                return
+            }
+            executableURL = selected
+        }
+        UserDefaults.standard.set(executableURL.path, forKey: RScapeExecutableLocator.savedPathKey)
+        guard let outputURL = refinementOutputURL(kind: .caCoFold) else { return }
+
+        let stockholmText = document.file.rendered
+        isCaCoFoldRefining = true
+        state.statusMessage = "R-scape and CaCoFold are improving the given structure… The current alignment remains unchanged."
+
+        Task {
+            do {
+                let resultText = try await RScapeRunner.refineStructureWithCaCoFold(
+                    executableURL: executableURL,
+                    stockholmText: stockholmText,
+                    processHandle: RScapeProcessHandle()
+                )
+                try resultText.write(to: outputURL, atomically: true, encoding: .utf8)
+                isCaCoFoldRefining = false
+                let resultFile = StockholmParser.parse(resultText)
+                state.statusMessage = "Created \(outputURL.lastPathComponent) with \(resultFile.structureRows.count) structure layer\(resultFile.structureRows.count == 1 ? "" : "s"). R-scape intermediate files were discarded."
+                await openGeneratedStockholm(outputURL)
+            } catch {
+                isCaCoFoldRefining = false
+                state.statusMessage = "CaCoFold-refinement failed: \(error.localizedDescription)"
+                presentAlert(
+                    title: "CaCoFold-refinement failed",
+                    message: error.localizedDescription
+                )
             }
         }
     }
@@ -546,9 +642,16 @@ struct DocumentEditorView: View {
     }
 
     private func locateRScape() {
+        guard let executableURL = chooseRScapeExecutable(
+            message: "Select the R-scape executable, its bin folder, or the R-scape installation folder. MATER will prefer the installed bin copy containing R2R."
+        ) else { return }
+        startRScapeAnalysis(using: executableURL)
+    }
+
+    private func chooseRScapeExecutable(message: String) -> URL? {
         let panel = NSOpenPanel()
         panel.title = "Locate R-scape"
-        panel.message = "Select the R-scape executable, its bin folder, or the R-scape installation folder. MATER will prefer the installed bin copy containing R2R."
+        panel.message = message
         panel.prompt = "Use R-scape"
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -557,14 +660,17 @@ struct DocumentEditorView: View {
         if let savedPath = UserDefaults.standard.string(forKey: RScapeExecutableLocator.savedPathKey) {
             panel.directoryURL = URL(fileURLWithPath: savedPath).deletingLastPathComponent()
         }
-        guard panel.runModal() == .OK, let selectionURL = panel.url else { return }
+        guard panel.runModal() == .OK, let selectionURL = panel.url else { return nil }
         guard let executableURL = RScapeExecutableLocator.resolveSelection(selectionURL) else {
-            rScapeController.presentError(RScapeRunError.invalidExecutable(selectionURL.path))
+            presentAlert(
+                title: "R-scape is not usable",
+                message: RScapeRunError.invalidExecutable(selectionURL.path).localizedDescription
+            )
             NSSound.beep()
-            return
+            return nil
         }
         UserDefaults.standard.set(executableURL.path, forKey: RScapeExecutableLocator.savedPathKey)
-        startRScapeAnalysis(using: executableURL)
+        return executableURL
     }
 
     private func rScapeOutputDirectory() -> URL? {
@@ -601,14 +707,14 @@ struct DocumentEditorView: View {
         }
     }
 
-    private func autoRefinementOutputURL() -> URL? {
+    private func refinementOutputURL(kind: AlignmentRefinementKind) -> URL? {
         guard let sourceURL else {
             let panel = NSSavePanel()
-            panel.title = "Save Auto-Refined Alignment"
-            panel.prompt = "Refine and Save"
+            panel.title = kind.savePanelTitle
+            panel.prompt = kind.savePanelPrompt
             panel.allowedContentTypes = [.stockholmAlignment]
             panel.canCreateDirectories = true
-            panel.nameFieldStringValue = "MATER-refined.sto"
+            panel.nameFieldStringValue = "\(kind.filenameStem).sto"
             return panel.runModal() == .OK ? panel.url : nil
         }
 
@@ -618,12 +724,33 @@ struct DocumentEditorView: View {
         var suffix = ""
         var counter = 2
         while true {
-            let filename = "\(baseName)-MATER-refined\(suffix).\(sourceExtension)"
+            let filename = "\(baseName)-\(kind.filenameStem)\(suffix).\(sourceExtension)"
             let candidate = directory.appendingPathComponent(filename)
             if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
             suffix = "-\(counter)"
             counter += 1
         }
+    }
+
+    private func openGeneratedStockholm(_ url: URL) async {
+        do {
+            try await openDocument(at: url)
+        } catch {
+            state.statusMessage += " The file was saved, but MATER could not open it automatically."
+            presentAlert(
+                title: "The refined alignment was saved",
+                message: "MATER could not open \(url.lastPathComponent) automatically. Open it with File → Open.\n\n\(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func presentAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private var selectionInspectorText: String {

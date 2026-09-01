@@ -30,6 +30,8 @@ enum RScapeRunError: LocalizedError, Equatable {
     case analysisFailed(status: Int32, details: String)
     case missingCovarianceTable
     case missingR2RDrawing
+    case missingCaCoFoldAlignment
+    case invalidCaCoFoldAlignment(String)
 
     var errorDescription: String? {
         switch self {
@@ -47,6 +49,10 @@ enum RScapeRunError: LocalizedError, Equatable {
             return "R-scape did not produce its pairwise .cov significance table."
         case .missingR2RDrawing:
             return "The statistical test completed, but R-scape did not produce an R2R PDF drawing. Check that the R2R and Perl components of the R-scape installation are available."
+        case .missingCaCoFoldAlignment:
+            return "R-scape completed without producing the expected CaCoFold Stockholm alignment."
+        case .invalidCaCoFoldAlignment(let details):
+            return "CaCoFold produced a Stockholm alignment that MATER could not safely open. \(details)"
         }
     }
 }
@@ -263,6 +269,100 @@ enum RScapeRunner {
         }.value
     }
 
+    /// Uses R-scape's evaluate-given-structure CaCoFold workflow and returns
+    /// only the improved Stockholm text. All R-scape intermediate products
+    /// remain inside a private temporary directory that is deleted afterward.
+    static func refineStructureWithCaCoFold(
+        executableURL: URL,
+        stockholmText: String,
+        processHandle: RScapeProcessHandle
+    ) async throws -> String {
+        guard let resolvedExecutable = RScapeExecutableLocator.resolveSelection(executableURL) else {
+            throw RScapeRunError.invalidExecutable(executableURL.path)
+        }
+
+        return try await Task.detached(priority: .userInitiated) {
+            try refineStructureWithCaCoFoldSynchronously(
+                executableURL: resolvedExecutable,
+                stockholmText: stockholmText,
+                processHandle: processHandle
+            )
+        }.value
+    }
+
+    static func caCoFoldArguments(
+        inputURL: URL,
+        outputDirectory: URL,
+        outputName: String
+    ) -> [String] {
+        [
+            "-s",
+            "--cacofold",
+            "--nofigures",
+            "--onemsa",
+            "--outdir", outputDirectory.path,
+            "--outname", sanitizedOutputName(outputName),
+            inputURL.path
+        ]
+    }
+
+    private static func refineStructureWithCaCoFoldSynchronously(
+        executableURL: URL,
+        stockholmText: String,
+        processHandle: RScapeProcessHandle
+    ) throws -> String {
+        let fileManager = FileManager.default
+        let temporaryDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("MATER-CaCoFold-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: temporaryDirectory) }
+
+        let safeName = "MATER-CaCoFold-refined"
+        let inputURL = temporaryDirectory.appendingPathComponent("MATER-CaCoFold-input.sto")
+        try stockholmText.write(to: inputURL, atomically: true, encoding: .utf8)
+        let arguments = caCoFoldArguments(
+            inputURL: inputURL,
+            outputDirectory: temporaryDirectory,
+            outputName: safeName
+        )
+        let processOutput = try launch(
+            executableURL: executableURL,
+            arguments: arguments,
+            workingDirectoryURL: temporaryDirectory,
+            processHandle: processHandle
+        )
+
+        if processHandle.wasCancelled { throw RScapeRunError.cancelled }
+        guard processOutput.status == 0 else {
+            throw RScapeRunError.analysisFailed(
+                status: processOutput.status,
+                details: failureDetails(processOutput: processOutput)
+            )
+        }
+
+        let expectedURL = temporaryDirectory.appendingPathComponent("\(safeName).cacofold.sto")
+        let resultURL: URL?
+        if fileManager.fileExists(atPath: expectedURL.path) {
+            resultURL = expectedURL
+        } else {
+            resultURL = try fileManager.contentsOfDirectory(
+                at: temporaryDirectory,
+                includingPropertiesForKeys: nil
+            ).first(where: { $0.lastPathComponent.hasSuffix(".cacofold.sto") })
+        }
+        guard let resultURL else { throw RScapeRunError.missingCaCoFoldAlignment }
+
+        let resultText = try String(contentsOf: resultURL, encoding: .utf8)
+        let parsed = StockholmParser.parse(resultText)
+        let errors = parsed.validationIssues.filter { $0.severity == .error }
+        guard errors.isEmpty else {
+            throw RScapeRunError.invalidCaCoFoldAlignment(
+                errors.prefix(3).map(\.message).joined(separator: " ")
+            )
+        }
+        return resultText
+    }
+
     private static func runSynchronously(
         executableURL: URL,
         stockholmText: String,
@@ -457,6 +557,13 @@ enum RScapeRunner {
         let diagnostic = conciseDetails(combined)
         let logMessage = "Full diagnostics were saved to \(logURL.path)."
         return diagnostic.isEmpty ? logMessage : "\(diagnostic) \(logMessage)"
+    }
+
+    private static func failureDetails(processOutput: ProcessOutput) -> String {
+        let combined = processOutput.stdout
+            + (processOutput.stderr.isEmpty ? "" : "\n\(processOutput.stderr)")
+        let diagnostic = conciseDetails(combined)
+        return diagnostic.isEmpty ? "No additional diagnostics were reported." : diagnostic
     }
 
     private static func warningMessage(from stderr: String) -> String? {

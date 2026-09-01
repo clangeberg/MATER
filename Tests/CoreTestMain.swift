@@ -19,6 +19,7 @@ struct CoreTestMain {
         optimizesCompleteHelixWindows()
         leavesUnoccupiedStructuralVariantsAlone()
         parsesRScapeOutputsAndHandlesMissingExecutable()
+        await runsCaCoFoldRefinementAndDiscardsTemporaryArtifacts()
         await runsRScapeIntegrationWhenRequested()
         refinesEntireAlignmentWithoutChangingSequences()
         alignmentEditingKeepsRowsSynchronized()
@@ -470,10 +471,78 @@ struct CoreTestMain {
             expect(FileManager.default.fileExists(atPath: result.r2rPDFURL.path), "R-scape integration R2R PDF output")
             expect(result.inputSnapshotURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } == source, "R-scape integration input snapshot")
             expect((result.summary.annotatedBasePairs ?? 0) > 0, "R-scape integration power summary")
+            let caCoFoldText = try await RScapeRunner.refineStructureWithCaCoFold(
+                executableURL: URL(fileURLWithPath: executablePath),
+                stockholmText: source,
+                processHandle: RScapeProcessHandle()
+            )
+            let caCoFoldFile = StockholmParser.parse(caCoFoldText)
+            expect(!caCoFoldFile.sequenceRows.isEmpty, "CaCoFold integration sequence rows")
+            expect(!caCoFoldFile.structureRows.isEmpty, "CaCoFold integration structure rows")
+            expect(
+                caCoFoldFile.validationIssues.allSatisfy { $0.severity != .error },
+                "CaCoFold integration produced an invalid Stockholm alignment"
+            )
             let annotated = result.summary.annotatedBasePairs.map(String.init) ?? "unknown"
-            print("R-scape integration passed with \(result.summary.significantPairs) significant pair(s) across \(annotated) annotated pair(s).")
+            print("R-scape and CaCoFold integration passed with \(result.summary.significantPairs) significant pair(s) across \(annotated) annotated pair(s).")
         } catch {
             expect(false, "R-scape integration failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static func runsCaCoFoldRefinementAndDiscardsTemporaryArtifacts() async {
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MATER-CaCoFold-fixture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+        do {
+            try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+            let executableURL = fixtureDirectory.appendingPathComponent("R-scape")
+            let executable = """
+            #!/bin/sh
+            saw_structure=0
+            saw_cacofold=0
+            saw_nofigures=0
+            saw_onemsa=0
+            outdir=""
+            outname=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -s) saw_structure=1 ;;
+                --cacofold) saw_cacofold=1 ;;
+                --nofigures) saw_nofigures=1 ;;
+                --onemsa) saw_onemsa=1 ;;
+                --outdir) shift; outdir="$1" ;;
+                --outname) shift; outname="$1" ;;
+              esac
+              shift
+            done
+            if [ "$saw_structure$saw_cacofold$saw_nofigures$saw_onemsa" != "1111" ]; then exit 42; fi
+            printf '# STOCKHOLM 1.0\n#=GF CC TEMP_DIR=%s\nseq ACGU\n#=GC SS_cons <..>\n//\n' "$outdir" > "$outdir/$outname.cacofold.sto"
+            touch "$outdir/$outname.cacofold.power"
+            exit 0
+            """
+            try executable.write(to: executableURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+
+            let resultText = try await RScapeRunner.refineStructureWithCaCoFold(
+                executableURL: executableURL,
+                stockholmText: "# STOCKHOLM 1.0\nseq ACGU\n#=GC SS_cons <..>\n//\n",
+                processHandle: RScapeProcessHandle()
+            )
+            let parsed = StockholmParser.parse(resultText)
+            expect(parsed.sequenceRows.count == 1, "CaCoFold runner returned its Stockholm alignment")
+            let temporaryPath = resultText.split(whereSeparator: \.isNewline)
+                .first(where: { $0.hasPrefix("#=GF CC TEMP_DIR=") })
+                .map { String($0.dropFirst("#=GF CC TEMP_DIR=".count)) }
+            expect(temporaryPath != nil, "CaCoFold fixture recorded its working directory")
+            if let temporaryPath {
+                expect(
+                    !FileManager.default.fileExists(atPath: temporaryPath),
+                    "CaCoFold temporary output directory was retained"
+                )
+            }
+        } catch {
+            expect(false, "CaCoFold runner fixture failed: \(error.localizedDescription)")
         }
     }
 
