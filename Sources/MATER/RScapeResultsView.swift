@@ -187,9 +187,9 @@ struct RScapeResultsPanel: View {
                 }
                 HStack {
                     Button("Open Full Size") { NSWorkspace.shared.open(result.r2rPDFURL) }
-                    Button("Pair Table") { NSWorkspace.shared.open(result.covarianceTableURL) }
+                    Button("Pair Table") { openInTextEdit(result.covarianceTableURL) }
                     if let powerURL = result.powerTableURL {
-                        Button("Power Table") { NSWorkspace.shared.open(powerURL) }
+                        Button("Power Table") { openInTextEdit(powerURL) }
                     }
                     Button("Reveal Files") {
                         NSWorkspace.shared.activateFileViewerSelecting([result.outputDirectory])
@@ -240,6 +240,19 @@ struct RScapeResultsPanel: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func openInTextEdit(_ url: URL) {
+        let workspace = NSWorkspace.shared
+        guard let textEditURL = workspace.urlForApplication(withBundleIdentifier: "com.apple.TextEdit") else {
+            workspace.open(url)
+            return
+        }
+        workspace.open(
+            [url],
+            withApplicationAt: textEditURL,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
     }
 }
 

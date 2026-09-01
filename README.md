@@ -40,7 +40,7 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Collapsible Structural Quality Inspector with per-stem support metrics, residue-pair counts, pair-by-pair summaries, and clickable observations
 - Gap-only suggested stem fixes that optimize both complete helix arms plus up to three neighboring unpaired columns, with before/after previews and structural/profile scoring
 - One-click whole-alignment auto-refinement that iterates safe coordinated helix-arm and neighboring gap improvements to a local fixed point, writes a new Stockholm file, and leaves the source untouched
-- Optional R-scape evaluate-given-structure (`-s`) integration with retained `.cov` and `.power` tables, an R2R PDF/SVG drawing, and a closable zoomable PDFKit preview inside MATER; executable, `bin`, and installation-folder selection are supported
+- Optional R-scape evaluate-given-structure (`-s`) integration with retained `.cov` and `.power` tables that open directly in TextEdit, an R2R PDF/SVG drawing, and a closable zoomable PDFKit preview inside MATER; executable, `bin`, and installation-folder selection are supported
 - Display-only sequence filtering and sorting by selected-stem pairing violations, name, violation count, or alignment-wide gap fraction
 - Column-aligned structure overview with matching colored blocks for each stem arm and dashed outlines for pseudoknots
 - Combined structure/entropy/gap/pair-violation overview for direct comparison and rapid navigation across large alignments

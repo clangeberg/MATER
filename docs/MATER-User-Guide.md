@@ -711,7 +711,7 @@ For a saved alignment, MATER creates a unique sibling folder named `NAME-MATER-R
 | `NAME-R-scape.original.sto` | R-scape's retained/normalized Stockholm input, when produced |
 | `NAME-R-scape.log` | Exact command plus captured standard output and error |
 
-Buttons below the preview open the full PDF, pair table, power table, or results folder. MATER accepts a run as usable when the `.cov` table and R2R PDF exist. Some R-scape installations report optional RFview or gnuplot warnings after producing those required outputs; MATER retains the results and surfaces a warning linked to the log rather than discarding valid files.
+Buttons below the preview open the full PDF, pair table, power table, or results folder. Pair and power tables open explicitly as plain text in Apple TextEdit, so macOS does not search the App Store for programs associated with the scientific `.cov` and `.power` extensions. MATER accepts a run as usable when the `.cov` table and R2R PDF exist. Some R-scape installations report optional RFview or gnuplot warnings after producing those required outputs; MATER retains the results and surfaces a warning linked to the log rather than discarding valid files.
 
 ### 14.4 Summary values and interpretation
 

@@ -13,6 +13,7 @@
 - Add toggleable **Element** coloring for high-level continuous helices: arbitrarily large bulges and internal loops retain one color, while true branch junctions, disjoint roots, different structure rows, and different WUSS pairing classes begin new elements.
 - Resolve remembered `src/R-scape` selections and selected `bin`/installation folders to the installed `bin/R-scape` beside R2R; explain Finder-versus-Terminal PATH behavior.
 - Run R-scape inside MATER's private writable temporary directory so its internal FastTree alignment/tree files work when MATER is launched from Finder; retain combined standard-output/error diagnostics on failure.
+- Open R-scape `.cov` pair tables and `.power` tables explicitly in TextEdit instead of asking macOS to locate an application for those scientific file extensions.
 - Keep the compact structural-problem heatmap editor-only and intentionally exclude it from alignment PDF/SVG export.
 
 ## 0.7.0-alpha.1 — 2026-08-30
