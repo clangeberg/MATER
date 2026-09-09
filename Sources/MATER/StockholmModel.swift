@@ -71,9 +71,27 @@ struct AlignmentRow: Identifiable, Equatable, Sendable {
 
 struct ValidationIssue: Identifiable, Equatable, Sendable {
     enum Severity: String, Sendable { case warning, error }
-    let id = UUID()
+    let id: String
     let severity: Severity
     let message: String
+
+    init(id: String? = nil, severity: Severity, message: String) {
+        self.id = id ?? "\(severity.rawValue):\(message)"
+        self.severity = severity
+        self.message = message
+    }
+}
+
+/// Centralized gap semantics. MATER preserves the user's `.`/`-` notation
+/// while treating the accepted Stockholm symbols consistently everywhere.
+enum AlignmentSymbol {
+    static func isStockholmGap(_ character: Character) -> Bool {
+        character == "-" || character == "." || character == "~"
+    }
+
+    static func isSequenceGap(_ character: Character) -> Bool {
+        isStockholmGap(character) || character == "_" || character == " "
+    }
 }
 
 struct StockholmFile: Equatable, Sendable {
@@ -81,17 +99,20 @@ struct StockholmFile: Equatable, Sendable {
     var lineEnding: String
     var hasFinalNewline: Bool
     var normalizedInterleavedSegmentCount: Int
+    var parseValidationIssues: [ValidationIssue]
 
     init(
         records: [StockholmRecord],
         lineEnding: String = "\n",
         hasFinalNewline: Bool = true,
-        normalizedInterleavedSegmentCount: Int = 0
+        normalizedInterleavedSegmentCount: Int = 0,
+        parseValidationIssues: [ValidationIssue] = []
     ) {
         self.records = records
         self.lineEnding = lineEnding
         self.hasFinalNewline = hasFinalNewline
         self.normalizedInterleavedSegmentCount = normalizedInterleavedSegmentCount
+        self.parseValidationIssues = parseValidationIssues
     }
 
     var rows: [AlignmentRow] {
@@ -120,7 +141,7 @@ struct StockholmFile: Equatable, Sendable {
     }
 
     var validationIssues: [ValidationIssue] {
-        var issues: [ValidationIssue] = []
+        var issues = parseValidationIssues
         if normalizedInterleavedSegmentCount > 0 {
             issues.append(.init(
                 severity: .warning,
@@ -146,6 +167,26 @@ struct StockholmFile: Equatable, Sendable {
                 ))
             }
         }
+        let sequenceNameCounts = Dictionary(grouping: sequenceRows.compactMap { row -> String? in
+            if case .sequence(let name) = row.kind { return name }
+            return nil
+        }, by: { $0 }).mapValues(\.count)
+        for row in rows {
+            guard case .residueAnnotation(let sequence, let tag) = row.kind else { continue }
+            if sequenceNameCounts[sequence] == nil {
+                issues.append(.init(
+                    id: "orphan-gr:\(sequence):\(tag):\(row.recordIndex)",
+                    severity: .error,
+                    message: "#=GR \(sequence) \(tag) has no matching sequence row."
+                ))
+            } else if sequenceNameCounts[sequence] != 1 {
+                issues.append(.init(
+                    id: "ambiguous-gr:\(sequence):\(tag):\(row.recordIndex)",
+                    severity: .error,
+                    message: "#=GR \(sequence) \(tag) cannot be associated because sequence name '\(sequence)' is duplicated."
+                ))
+            }
+        }
         if structureRows.isEmpty {
             issues.append(.init(severity: .warning, message: "No #=GC SS_cons structure row was found."))
         }
@@ -167,8 +208,22 @@ struct StockholmFile: Equatable, Sendable {
     }
 
     mutating func replaceCharacters(row: Int, startingAt column: Int, with text: String) {
-        for (offset, character) in text.enumerated() {
-            replaceCharacter(row: row, column: column + offset, with: character)
+        let alignmentRows = rows
+        guard alignmentRows.indices.contains(row) else { return }
+        let recordIndex = alignmentRows[row].recordIndex
+        var characters = Array(records[recordIndex].aligned)
+        var changed = false
+        for (offset, character) in text.enumerated() where characters.indices.contains(column + offset) {
+            characters[column + offset] = character
+            changed = true
+        }
+        guard changed else { return }
+        let replacement = String(characters)
+        if alignmentRows[row].kind.isSequence,
+           Self.ungappedResidues(in: replacement) == Self.ungappedResidues(in: records[recordIndex].aligned) {
+            _ = replaceSequenceGapPlacement(recordIndex: recordIndex, with: replacement)
+        } else {
+            records[recordIndex].aligned = replacement
         }
     }
 
@@ -253,14 +308,14 @@ struct StockholmFile: Equatable, Sendable {
             guard destinations.allSatisfy({ characters.indices.contains($0) }) else { return false }
             guard Set(destinations).subtracting(sources).allSatisfy({ Self.isGap(characters[$0]) }) else { return false }
 
-            var shifted = characters
-            for column in sources { shifted[column] = "-" }
-            for (source, destination) in moves {
-                shifted[destination] = characters[source]
-            }
+            guard let shifted = Self.movedCharactersPreservingGaps(characters, moves: moves) else { return false }
             replacements[recordIndex] = String(shifted)
         }
-        for (recordIndex, replacement) in replacements { records[recordIndex].aligned = replacement }
+        var replacementFile = self
+        for (recordIndex, replacement) in replacements {
+            guard replacementFile.replaceSequenceGapPlacement(recordIndex: recordIndex, with: replacement) else { return false }
+        }
+        self = replacementFile
         return true
     }
 
@@ -274,10 +329,9 @@ struct StockholmFile: Equatable, Sendable {
         var characters = Array(records[recordIndex].aligned)
         guard characters.indices.contains(column),
               let downstreamGap = ((column + 1)..<characters.count).first(where: { Self.isGap(characters[$0]) }) else { return false }
-        characters.remove(at: downstreamGap)
-        characters.insert("-", at: column)
-        records[recordIndex].aligned = String(characters)
-        return true
+        let displacedGap = characters.remove(at: downstreamGap)
+        characters.insert(displacedGap, at: column)
+        return replaceSequenceGapPlacement(recordIndex: recordIndex, with: String(characters))
     }
 
     /// Removes the gap at the cursor and pulls the following residue block left;
@@ -290,12 +344,11 @@ struct StockholmFile: Equatable, Sendable {
         var characters = Array(records[recordIndex].aligned)
         guard characters.indices.contains(column), Self.isGap(characters[column]) else { return false }
         let downstreamGap = ((column + 1)..<characters.count).first(where: { Self.isGap(characters[$0]) }) ?? characters.count
-        characters.remove(at: column)
-        characters.insert("-", at: min(downstreamGap, characters.count))
+        let displacedGap = characters.remove(at: column)
+        characters.insert(displacedGap, at: min(downstreamGap, characters.count))
         let replacement = String(characters)
         guard replacement != records[recordIndex].aligned else { return false }
-        records[recordIndex].aligned = replacement
-        return true
+        return replaceSequenceGapPlacement(recordIndex: recordIndex, with: replacement)
     }
 
     mutating func setPair(left: Int, right: Int, layer: PairingLayer) {
@@ -371,7 +424,135 @@ struct StockholmFile: Equatable, Sendable {
     }
 
     static func isGap(_ character: Character) -> Bool {
-        character == "-" || character == "." || character == "~"
+        AlignmentSymbol.isStockholmGap(character)
+    }
+
+    static func ungappedResidues(in aligned: String) -> String {
+        String(aligned.filter { !AlignmentSymbol.isSequenceGap($0) })
+    }
+
+    /// Applies a gap-only placement change to a sequence and every matching
+    /// per-residue annotation using the identical full-column permutation.
+    @discardableResult
+    mutating func replaceSequenceGapPlacement(recordIndex: Int, with replacement: String) -> Bool {
+        guard records.indices.contains(recordIndex),
+              case .sequence(let name) = records[recordIndex].kind else { return false }
+        let original = records[recordIndex].aligned
+        guard original.count == replacement.count,
+              Self.ungappedResidues(in: original) == Self.ungappedResidues(in: replacement),
+              let permutation = Self.gapOnlyColumnPermutation(from: original, to: replacement) else { return false }
+
+        let matchingSequences = sequenceRows.filter {
+            if case .sequence(let candidate) = $0.kind { return candidate == name }
+            return false
+        }
+        guard matchingSequences.count == 1 else { return false }
+
+        let annotationIndices = records.indices.filter {
+            if case .residueAnnotation(let sequence, _) = records[$0].kind { return sequence == name }
+            return false
+        }
+        guard annotationIndices.allSatisfy({ records[$0].aligned.count == original.count }) else { return false }
+
+        var annotationReplacements: [Int: String] = [:]
+        for annotationIndex in annotationIndices {
+            let source = Array(records[annotationIndex].aligned)
+            var target = source
+            for oldColumn in source.indices { target[permutation[oldColumn]] = source[oldColumn] }
+            annotationReplacements[annotationIndex] = String(target)
+        }
+        records[recordIndex].aligned = replacement
+        for (annotationIndex, aligned) in annotationReplacements {
+            records[annotationIndex].aligned = aligned
+        }
+        return true
+    }
+
+    static func gapOnlyColumnPermutation(from original: String, to replacement: String) -> [Int]? {
+        let old = Array(original)
+        let new = Array(replacement)
+        guard old.count == new.count else { return nil }
+        let oldResidues = old.indices.filter { !AlignmentSymbol.isSequenceGap(old[$0]) }
+        let newResidues = new.indices.filter { !AlignmentSymbol.isSequenceGap(new[$0]) }
+        guard oldResidues.map({ old[$0] }) == newResidues.map({ new[$0] }) else { return nil }
+        let oldGaps = old.indices.filter { AlignmentSymbol.isSequenceGap(old[$0]) }
+        let newGaps = new.indices.filter { AlignmentSymbol.isSequenceGap(new[$0]) }
+        guard oldGaps.count == newGaps.count else { return nil }
+        var destinationByOld = Array(repeating: 0, count: old.count)
+        for (source, destination) in zip(oldResidues, newResidues) { destinationByOld[source] = destination }
+        for (source, destination) in zip(oldGaps, newGaps) { destinationByOld[source] = destination }
+        return destinationByOld
+    }
+
+    /// Defensive repair for bulk UI mutations (notably paste and baseline
+    /// restore). If a closure moved only gaps in a sequence but left its GR
+    /// rows untouched, apply the missing permutation before committing.
+    mutating func synchronizeResidueAnnotationsAfterGapMoves(from original: StockholmFile) {
+        let originalSequences = Dictionary(
+            grouping: original.sequenceRows.compactMap { row -> (String, Int)? in
+                guard case .sequence(let name) = row.kind else { return nil }
+                return (name, row.recordIndex)
+            },
+            by: { $0.0 }
+        )
+        let currentSequences = Dictionary(
+            grouping: sequenceRows.compactMap { row -> (String, Int)? in
+                guard case .sequence(let name) = row.kind else { return nil }
+                return (name, row.recordIndex)
+            },
+            by: { $0.0 }
+        )
+
+        for (name, currentEntries) in currentSequences where currentEntries.count == 1 {
+            guard let originalEntries = originalSequences[name], originalEntries.count == 1 else { continue }
+            let oldAligned = original.records[originalEntries[0].1].aligned
+            let newAligned = records[currentEntries[0].1].aligned
+            guard oldAligned != newAligned,
+                  let permutation = Self.gapOnlyColumnPermutation(from: oldAligned, to: newAligned) else { continue }
+
+            let oldAnnotations = Dictionary(original.records.enumerated().compactMap { index, record -> (String, (Int, String))? in
+                guard case .residueAnnotation(let sequence, let tag) = record.kind, sequence == name else { return nil }
+                return (tag, (index, record.aligned))
+            }, uniquingKeysWith: { first, _ in first })
+            for index in records.indices {
+                guard case .residueAnnotation(let sequence, let tag) = records[index].kind,
+                      sequence == name,
+                      let (_, oldAnnotation) = oldAnnotations[tag],
+                      records[index].aligned == oldAnnotation,
+                      oldAnnotation.count == permutation.count else { continue }
+                let source = Array(oldAnnotation)
+                var target = source
+                for oldColumn in source.indices { target[permutation[oldColumn]] = source[oldColumn] }
+                records[index].aligned = String(target)
+            }
+        }
+    }
+
+    /// Vacated source cells receive the gap symbol displaced at the end of the
+    /// move chain, preserving mixed `.` and `-` alignments.
+    static func movedCharactersPreservingGaps(_ characters: [Character], moves: [Int: Int]) -> [Character]? {
+        guard !moves.isEmpty else { return nil }
+        let sources = Set(moves.keys)
+        let destinations = Array(moves.values)
+        guard Set(destinations).count == destinations.count,
+              sources.allSatisfy(characters.indices.contains),
+              destinations.allSatisfy(characters.indices.contains),
+              Set(destinations).subtracting(sources).allSatisfy({ AlignmentSymbol.isSequenceGap(characters[$0]) }) else {
+            return nil
+        }
+
+        var result = characters
+        for (source, destination) in moves { result[destination] = characters[source] }
+        for root in sources.subtracting(Set(destinations)) {
+            var terminal = root
+            var visited: Set<Int> = []
+            while let destination = moves[terminal], sources.contains(destination), visited.insert(terminal).inserted {
+                terminal = destination
+            }
+            guard let gapColumn = moves[terminal], AlignmentSymbol.isSequenceGap(characters[gapColumn]) else { return nil }
+            result[root] = characters[gapColumn]
+        }
+        return result == characters ? nil : result
     }
 }
 
@@ -394,7 +575,8 @@ enum StockholmParser {
             records: joined.records,
             lineEnding: lineEnding,
             hasFinalNewline: hasFinalNewline,
-            normalizedInterleavedSegmentCount: joined.joinedSegmentCount
+            normalizedInterleavedSegmentCount: joined.joinedSegmentCount,
+            parseValidationIssues: joined.validationIssues
         )
     }
 
@@ -404,28 +586,88 @@ enum StockholmParser {
     /// metadata/comments and the first row's formatting.
     private static func joiningInterleavedSegments(
         in parsedRecords: [StockholmRecord]
-    ) -> (records: [StockholmRecord], joinedSegmentCount: Int) {
+    ) -> (records: [StockholmRecord], joinedSegmentCount: Int, validationIssues: [ValidationIssue]) {
+        struct OccurrenceKey: Hashable {
+            let key: AlignedRecordKey
+            let occurrence: Int
+        }
+
         var result: [StockholmRecord] = []
-        var resultIndexByKey: [AlignedRecordKey: Int] = [:]
+        var resultIndexByKey: [OccurrenceKey: Int] = [:]
+        var currentBlockKeys: [AlignedRecordKey] = []
+        var occurrenceByKey: [AlignedRecordKey: Int] = [:]
+        var blockIndex = 0
         var joinedSegmentCount = 0
+        var validationIssues: [ValidationIssue] = []
+
+        func duplicateDescription(_ key: AlignedRecordKey) -> String {
+            switch key {
+            case .sequence(let name):
+                return "Duplicate sequence name '\(name)' appears within one Stockholm block. Sequence names must be unique."
+            case .columnAnnotation(let tag):
+                return "Duplicate #=GC tag '\(tag)' appears within one Stockholm block."
+            case .residueAnnotation(let sequence, let tag):
+                return "Duplicate #=GR row for '\(sequence) \(tag)' appears within one Stockholm block."
+            }
+        }
+
+        func startNextBlock() {
+            guard !currentBlockKeys.isEmpty else { return }
+            blockIndex += 1
+            currentBlockKeys.removeAll(keepingCapacity: true)
+            occurrenceByKey.removeAll(keepingCapacity: true)
+        }
 
         for record in parsedRecords {
             guard let key = alignedRecordKey(for: record) else {
                 result.append(record)
+                if record.raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    startNextBlock()
+                }
                 if record.raw.trimmingCharacters(in: .whitespaces) == "//" {
                     resultIndexByKey.removeAll()
+                    currentBlockKeys.removeAll()
+                    occurrenceByKey.removeAll()
+                    blockIndex = 0
                 }
                 continue
             }
-            guard let existingIndex = resultIndexByKey[key] else {
-                resultIndexByKey[key] = result.count
+
+            if blockIndex == 0, currentBlockKeys.count > 1, key == currentBlockKeys.first {
+                startNextBlock()
+            }
+
+            let occurrence = occurrenceByKey[key, default: 0]
+            occurrenceByKey[key] = occurrence + 1
+            currentBlockKeys.append(key)
+            let occurrenceKey = OccurrenceKey(key: key, occurrence: occurrence)
+
+            if blockIndex == 0 {
+                if occurrence > 0 {
+                    validationIssues.append(.init(
+                        id: "duplicate:\(String(describing: key)):\(occurrence)",
+                        severity: .error,
+                        message: duplicateDescription(key)
+                    ))
+                }
+                resultIndexByKey[occurrenceKey] = result.count
                 result.append(record)
                 continue
             }
-            result[existingIndex].aligned += record.aligned
-            joinedSegmentCount += 1
+            if let existingIndex = resultIndexByKey[occurrenceKey] {
+                result[existingIndex].aligned += record.aligned
+                joinedSegmentCount += 1
+            } else {
+                validationIssues.append(.init(
+                    id: "wrapped-mismatch:\(blockIndex):\(String(describing: key)):\(occurrence)",
+                    severity: .error,
+                    message: "Wrapped Stockholm block \(blockIndex + 1) contains a row not present in the first block: \(record.kind?.label ?? "unknown row")."
+                ))
+                resultIndexByKey[occurrenceKey] = result.count
+                result.append(record)
+            }
         }
-        return (result, joinedSegmentCount)
+        return (result, joinedSegmentCount, validationIssues)
     }
 
     private static func alignedRecordKey(for record: StockholmRecord) -> AlignedRecordKey? {
@@ -627,7 +869,7 @@ enum ConsensusAnalyzer {
     }
 
     private static func isGSCGap(_ character: Character) -> Bool {
-        character == " " || character == "." || character == "_" || character == "-" || character == "~"
+        AlignmentSymbol.isSequenceGap(character)
     }
 
     private static func pairwiseIdentity(_ first: [Character], _ second: [Character]) -> Float {

@@ -1,6 +1,22 @@
 # Changelog
 
+## 0.9.0 — 2026-09-08
+
+- Move every matching `#=GR` row through the same full-column permutation as its sequence during shifts, gap opening/closing, suggested edits, paste/reversion, and Wiggle-refine; preserve the user's mixed `.`/`-` gap symbols.
+- Add residue-annotation attachment verification and regression coverage so PP/SS characters cannot silently fall out of register during gap-only sequence movement.
+- Distinguish wrapped Stockholm block continuations from duplicate identifiers; retain same-block duplicates as separate rows and report a specific validation error.
+- Give validation issues stable identities to eliminate unnecessary SwiftUI list churn.
+- Add cancellable Wiggle-refine with pass, sequence, and accepted-edit progress; cancellation never changes the source or writes a partial result.
+- Replace repeated UI structure parsing with cached pairs and batch multi-character edits; add a reproducible 5,000 × 1,000 synthetic performance benchmark.
+- Isolate recovery by canonical file path, expire snapshots after 30 days, and add a confirmed **Clear all recovery data** setting.
+- Add native About, Settings, and Help commands, including persistent residue-color and R-scape-path controls and an offline bundled guide.
+- Migrate the bundle/type identifiers to `io.github.clangeberg.mater` while copying existing residue-color and R-scape preferences from the former defaults domain.
+- Add a BSD 3-Clause license, `CITATION.cff`, a real application screenshot, portable SDK selection, universal release packaging, and macOS GitHub Actions testing/tag artifacts.
+- Keep release builds ad-hoc signed and unnotarized; no paid Apple developer tooling is required.
+
 ## 0.8.1 — 2026-09-01
+
+> Safety advisory: versions through 0.8.1 can leave `#=GR` per-residue annotations at their old columns after a sequence gap shift. Upgrade to 0.9.0 before editing alignments containing `#=GR` rows.
 
 - Rename **Auto-refine copy** to **Wiggle-refine** and write results as unique `*-MATER-wiggle-refined.sto` files.
 - Add **CaCoFold-refine**, which runs a separately installed R-scape with `-s --cacofold`, retains only its improved Stockholm alignment, and deletes all temporary analysis products.

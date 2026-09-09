@@ -9,7 +9,7 @@
     <key>CFBundleExecutable</key>
     <string>MATER</string>
     <key>CFBundleIdentifier</key>
-    <string>org.mater.rnaeditor</string>
+    <string>io.github.clangeberg.mater</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -19,9 +19,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-	<string>0.8.1</string>
+	<string>0.9.0</string>
     <key>CFBundleVersion</key>
-	<string>13</string>
+	<string>14</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
@@ -38,7 +38,7 @@
             <key>LSHandlerRank</key>
             <string>Owner</string>
             <key>LSItemContentTypes</key>
-            <array><string>org.mater.rnaeditor.stockholm-alignment</string></array>
+            <array><string>io.github.clangeberg.mater.stockholm-alignment</string></array>
         </dict>
     </array>
     <key>UTExportedTypeDeclarations</key>
@@ -49,7 +49,7 @@
             <key>UTTypeDescription</key>
             <string>Stockholm RNA alignment</string>
             <key>UTTypeIdentifier</key>
-            <string>org.mater.rnaeditor.stockholm-alignment</string>
+            <string>io.github.clangeberg.mater.stockholm-alignment</string>
             <key>UTTypeTagSpecification</key>
             <dict>
                 <key>public.filename-extension</key>

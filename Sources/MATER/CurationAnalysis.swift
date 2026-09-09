@@ -130,7 +130,62 @@ enum SequenceIntegrityAnalyzer {
     }
 
     private static func isAlignmentGap(_ character: Character) -> Bool {
-        StockholmFile.isGap(character) || character == "_" || character == " "
+        AlignmentSymbol.isSequenceGap(character)
+    }
+}
+
+enum ResidueAnnotationIntegrityAnalyzer {
+    /// Verifies that #=GR characters remain attached to the same residue
+    /// ordinals for every sequence whose gap placement changed. Standalone
+    /// annotation editing remains allowed because no sequence moved.
+    static func preservesAttachmentsForMovedSequences(
+        from before: StockholmFile,
+        to after: StockholmFile
+    ) -> Bool {
+        let beforeSequences = uniqueSequences(in: before)
+        let afterSequences = uniqueSequences(in: after)
+        for (name, beforeIndex) in beforeSequences {
+            guard let afterIndex = afterSequences[name] else { continue }
+            let oldAligned = before.records[beforeIndex].aligned
+            let newAligned = after.records[afterIndex].aligned
+            guard oldAligned != newAligned,
+                  StockholmFile.ungappedResidues(in: oldAligned) == StockholmFile.ungappedResidues(in: newAligned) else { continue }
+            if residueAnnotationSignatures(sequence: name, in: before)
+                != residueAnnotationSignatures(sequence: name, in: after) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func uniqueSequences(in file: StockholmFile) -> [String: Int] {
+        let grouped = Dictionary(grouping: file.sequenceRows.compactMap { row -> (String, Int)? in
+            guard case .sequence(let name) = row.kind else { return nil }
+            return (name, row.recordIndex)
+        }, by: { $0.0 })
+        return grouped.compactMapValues { $0.count == 1 ? $0[0].1 : nil }
+    }
+
+    private static func residueAnnotationSignatures(sequence name: String, in file: StockholmFile) -> [String: String] {
+        guard let sequenceRow = file.sequenceRows.first(where: {
+            if case .sequence(let candidate) = $0.kind { return candidate == name }
+            return false
+        }) else { return [:] }
+        let sequence = Array(file.records[sequenceRow.recordIndex].aligned)
+        var result: [String: String] = [:]
+        for record in file.records {
+            guard case .residueAnnotation(let sequenceName, let tag) = record.kind,
+                  sequenceName == name else { continue }
+            let annotation = Array(record.aligned)
+            guard annotation.count == sequence.count else {
+                result[tag] = "<invalid-width>"
+                continue
+            }
+            result[tag] = String(sequence.indices.compactMap {
+                AlignmentSymbol.isSequenceGap(sequence[$0]) ? nil : annotation[$0]
+            })
+        }
+        return result
     }
 }
 
@@ -237,7 +292,7 @@ enum StructuralQualityAnalyzer {
                 let pairText = "\(normalizedLeft)–\(normalizedRight)"
                 let issueKind: SequencePairIssue.Kind?
 
-                if StockholmFile.isGap(left) || StockholmFile.isGap(right) || left == "_" || right == "_" {
+                if AlignmentSymbol.isSequenceGap(left) || AlignmentSymbol.isSequenceGap(right) {
                     gaps += 1
                     pairStatus.gaps += 1
                     sequenceStatus.gaps += 1
@@ -305,7 +360,7 @@ enum StructuralQualityAnalyzer {
     static func wholeAlignmentGapFraction(recordIndex: Int, in file: StockholmFile) -> Double {
         let characters = Array(file.records[recordIndex].aligned)
         guard !characters.isEmpty else { return 0 }
-        let count = characters.filter { StockholmFile.isGap($0) || $0 == "_" }.count
+        let count = characters.filter(AlignmentSymbol.isSequenceGap).count
         return Double(count) / Double(characters.count)
     }
 
@@ -426,6 +481,17 @@ struct AlignmentRefinementResult: Equatable, Sendable {
     let changedSequenceCount: Int
     let passes: Int
     let converged: Bool
+}
+
+struct AlignmentRefinementProgress: Equatable, Sendable {
+    let pass: Int
+    let completedRows: Int
+    let totalRows: Int
+    let editCount: Int
+
+    var fractionCompleted: Double {
+        totalRows == 0 ? 0 : Double(completedRows) / Double(totalRows)
+    }
 }
 
 private struct RefinementColumnProfile: Sendable {
@@ -1060,11 +1126,8 @@ enum StemEditSuggester {
             let destinations = sourceColumns.map { $0 + direction }
             guard destinations.allSatisfy(original.indices.contains),
                   Set(destinations).subtracting(sources).allSatisfy({ isAlignmentGap(original[$0]) }) else { continue }
-            var shifted = original
-            for source in sourceColumns { shifted[source] = "-" }
-            for (source, destination) in zip(sourceColumns, destinations) {
-                shifted[destination] = original[source]
-            }
+            let moves = Dictionary(uniqueKeysWithValues: zip(sourceColumns, destinations))
+            guard let shifted = StockholmFile.movedCharactersPreservingGaps(original, moves: moves) else { continue }
             result.append(HelixWindowPlacement(
                 characters: shifted,
                 displacement: sourceColumns.count * abs(direction),
@@ -1087,6 +1150,30 @@ enum StemEditSuggester {
         preferLinked: Bool,
         maximumPasses: Int = 50
     ) -> AlignmentRefinementResult {
+        // Retain a synchronous convenience entry point for tests and callers
+        // that do not need cancellation.
+        (try? refineEntireAlignmentCancellable(
+            in: source,
+            preferLinked: preferLinked,
+            maximumPasses: maximumPasses
+        )) ?? AlignmentRefinementResult(
+            file: source,
+            before: alignmentScore(in: source, pairs: StructureParser.pairs(in: source)),
+            after: alignmentScore(in: source, pairs: StructureParser.pairs(in: source)),
+            editCount: 0,
+            changedSequenceCount: 0,
+            passes: 0,
+            converged: false
+        )
+    }
+
+    static func refineEntireAlignmentCancellable(
+        in source: StockholmFile,
+        preferLinked: Bool,
+        maximumPasses: Int = 50,
+        shouldCancel: @Sendable () -> Bool = { false },
+        progress: (@Sendable (AlignmentRefinementProgress) -> Void)? = nil
+    ) throws -> AlignmentRefinementResult {
         let allPairs = StructureParser.pairs(in: source)
         let beforeScore = alignmentScore(in: source, pairs: allPairs)
         guard !allPairs.isEmpty, maximumPasses > 0 else {
@@ -1117,15 +1204,27 @@ enum StemEditSuggester {
         var converged = false
 
         while passes < maximumPasses {
+            if shouldCancel() { throw CancellationError() }
             passes += 1
             var changedInPass = false
             let rows = refined.rows
+            let sequenceModelRows = rows.indices.filter { rows[$0].kind.isSequence }
+            let progressStride = max(1, sequenceModelRows.count / 100)
             let passProfile = weightedAlignmentProfile(
                 in: refined,
                 sequenceWeights: sequenceWeights
             )
 
-            for modelRow in rows.indices where rows[modelRow].kind.isSequence {
+            for (sequenceOffset, modelRow) in sequenceModelRows.enumerated() {
+                if shouldCancel() { throw CancellationError() }
+                if sequenceOffset == 0 || sequenceOffset % progressStride == 0 {
+                    progress?(.init(
+                        pass: passes,
+                        completedRows: sequenceOffset,
+                        totalRows: sequenceModelRows.count,
+                        editCount: editCount
+                    ))
+                }
                 let recordIndex = rows[modelRow].recordIndex
                 let maximumRowIterations = max(1, stems.count * 3)
                 var rowIterations = 0
@@ -1139,6 +1238,7 @@ enum StemEditSuggester {
                     var seenAlignments: Set<String> = []
 
                     for stemPairs in stems {
+                        if shouldCancel() { throw CancellationError() }
                         guard let cursorPair = stemPairs.first else { continue }
                         for cursorIsLeft in [true, false] {
                             let candidates = suggestions(
@@ -1183,12 +1283,23 @@ enum StemEditSuggester {
 
                     guard let bestSuggestion, let bestScore,
                           refined.records[recordIndex].aligned == bestSuggestion.expectedAligned else { break }
-                    refined.records[recordIndex].aligned = bestSuggestion.proposedAligned
+                    guard refined.replaceSequenceGapPlacement(
+                        recordIndex: recordIndex,
+                        with: bestSuggestion.proposedAligned
+                    ) else { break }
                     score = bestScore
                     editCount += 1
                     changedRecordIndices.insert(recordIndex)
                     changedInPass = true
                     rowIterations += 1
+                }
+                if sequenceOffset + 1 == sequenceModelRows.count {
+                    progress?(.init(
+                        pass: passes,
+                        completedRows: sequenceModelRows.count,
+                        totalRows: sequenceModelRows.count,
+                        editCount: editCount
+                    ))
                 }
             }
 
@@ -1279,7 +1390,7 @@ enum StemEditSuggester {
         for pair in pairs {
             let left = characters.indices.contains(pair.left) ? characters[pair.left] : "-"
             let right = characters.indices.contains(pair.right) ? characters[pair.right] : "-"
-            if StockholmFile.isGap(left) || StockholmFile.isGap(right) || left == "_" || right == "_" {
+            if AlignmentSymbol.isSequenceGap(left) || AlignmentSymbol.isSequenceGap(right) {
                 gaps += 1
             } else {
                 let normalizedLeft = Character(String(left).uppercased()) == "T" ? "U" : Character(String(left).uppercased())
@@ -1302,17 +1413,8 @@ enum StemEditSuggester {
     }
 
     private static func shifted(_ aligned: String, moves: [Int: Int]) -> String? {
-        guard !moves.isEmpty else { return nil }
         let characters = Array(aligned)
-        let sources = Set(moves.keys)
-        let destinations = Array(moves.values)
-        guard Set(destinations).count == destinations.count,
-              sources.allSatisfy({ characters.indices.contains($0) }),
-              destinations.allSatisfy({ characters.indices.contains($0) }),
-              Set(destinations).subtracting(sources).allSatisfy({ StockholmFile.isGap(characters[$0]) }) else { return nil }
-        var result = characters
-        for source in sources { result[source] = "-" }
-        for (source, destination) in moves { result[destination] = characters[source] }
+        guard let result = StockholmFile.movedCharactersPreservingGaps(characters, moves: moves) else { return nil }
         let candidate = String(result)
         return candidate == aligned ? nil : candidate
     }
@@ -1321,8 +1423,8 @@ enum StemEditSuggester {
         var characters = Array(aligned)
         guard characters.indices.contains(column),
               let downstreamGap = ((column + 1)..<characters.count).first(where: { StockholmFile.isGap(characters[$0]) }) else { return nil }
-        characters.remove(at: downstreamGap)
-        characters.insert("-", at: column)
+        let displacedGap = characters.remove(at: downstreamGap)
+        characters.insert(displacedGap, at: column)
         let candidate = String(characters)
         return candidate == aligned ? nil : candidate
     }
@@ -1331,17 +1433,17 @@ enum StemEditSuggester {
         var characters = Array(aligned)
         guard characters.indices.contains(column), StockholmFile.isGap(characters[column]) else { return nil }
         let downstreamGap = ((column + 1)..<characters.count).first(where: { StockholmFile.isGap(characters[$0]) }) ?? characters.count
-        characters.remove(at: column)
-        characters.insert("-", at: min(downstreamGap, characters.count))
+        let displacedGap = characters.remove(at: column)
+        characters.insert(displacedGap, at: min(downstreamGap, characters.count))
         let candidate = String(characters)
         return candidate == aligned ? nil : candidate
     }
 
     private static func ungappedResidues(in aligned: String) -> String {
-        String(aligned.filter { !(StockholmFile.isGap($0) || $0 == "_" || $0 == " ") })
+        StockholmFile.ungappedResidues(in: aligned)
     }
 
     private static func isAlignmentGap(_ character: Character) -> Bool {
-        StockholmFile.isGap(character) || character == "_" || character == " "
+        AlignmentSymbol.isSequenceGap(character)
     }
 }

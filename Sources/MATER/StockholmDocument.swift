@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import CryptoKit
 
 extension UTType {
-    static let stockholmAlignment = UTType(exportedAs: "org.mater.rnaeditor.stockholm-alignment", conformingTo: .plainText)
+    static let stockholmAlignment = UTType(exportedAs: "io.github.clangeberg.mater.stockholm-alignment", conformingTo: .plainText)
 }
 
 struct StockholmDocumentAnalysis {
@@ -41,7 +41,7 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
     private(set) var analysis: StockholmDocumentAnalysis
     private(set) var revision: UInt64 = 0
     private(set) var baselineFile: StockholmFile
-    private let recoveryIdentifier: String
+    private var recoveryIdentifier: String
     private var stemQualityCache: [Int: StemQuality] = [:]
 
     init() {
@@ -49,7 +49,15 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
         file = parsed
         baselineFile = parsed
         analysis = StockholmDocumentAnalysis(file: parsed)
-        recoveryIdentifier = Self.recoveryIdentifier(for: parsed.rendered)
+        recoveryIdentifier = "untitled-\(UUID().uuidString.lowercased())"
+    }
+
+    /// Internal fixture initializer used by visual documentation tooling.
+    init(previewFile: StockholmFile) {
+        file = previewFile
+        baselineFile = previewFile
+        analysis = StockholmDocumentAnalysis(file: previewFile)
+        recoveryIdentifier = "preview-\(UUID().uuidString.lowercased())"
     }
 
     required init(configuration: ReadConfiguration) throws {
@@ -87,7 +95,12 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
         let before = file
         var after = before
         mutation(&after)
+        after.synchronizeResidueAnnotationsAfterGapMoves(from: before)
         guard after != before else { return }
+        guard ResidueAnnotationIntegrityAnalyzer.preservesAttachmentsForMovedSequences(from: before, to: after) else {
+            integrityNotice = "Blocked \(actionName.lowercased()): a #=GR annotation would no longer follow its residues."
+            return
+        }
         let restoresIntegrity = allowIntegrityRestoration
             && SequenceIntegrityAnalyzer.differenceScore(current: after, baseline: baselineFile)
                 < SequenceIntegrityAnalyzer.differenceScore(current: before, baseline: baselineFile)
@@ -118,6 +131,22 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
     }
 
     var recoverySnapshotCount: Int { RecoveryStore.snapshotCount(identifier: recoveryIdentifier) }
+
+    /// Switches recovery from the temporary content identity used during
+    /// document decoding to a stable, collision-free identity for its path.
+    func configureRecoverySourceURL(_ sourceURL: URL?) {
+        guard let sourceURL else { return }
+        recoveryIdentifier = Self.recoveryIdentifier(for: "path:\(sourceURL.standardizedFileURL.path)")
+    }
+
+    static func cleanupRecoveryData(olderThanDays days: Int = 30) {
+        RecoveryStore.cleanup(olderThan: TimeInterval(max(1, days)) * 86_400)
+    }
+
+    @discardableResult
+    static func clearAllRecoveryData() -> Bool {
+        RecoveryStore.clearAll()
+    }
 
     var integrityReport: SequenceIntegrityReport {
         SequenceIntegrityAnalyzer.report(current: file, baseline: baselineFile)
@@ -277,7 +306,7 @@ struct AlignmentChangeSummary {
 }
 
 private enum RecoveryStore {
-    private static let ioQueue = DispatchQueue(label: "org.mater.rnaeditor.recovery", qos: .utility)
+    private static let ioQueue = DispatchQueue(label: "io.github.clangeberg.mater.recovery", qos: .utility)
     private static var pending: [String: DispatchWorkItem] = [:]
 
     static func schedule(_ file: StockholmFile, identifier: String) {
@@ -316,24 +345,67 @@ private enum RecoveryStore {
         return snapshotURLs(in: directory).count
     }
 
-    private static func directoryURL(identifier: String) throws -> URL {
-        if let override = ProcessInfo.processInfo.environment["MATER_RECOVERY_DIRECTORY"], !override.isEmpty {
-            let directory = URL(fileURLWithPath: override, isDirectory: true).appendingPathComponent(identifier, isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            return directory
+    static func cleanup(olderThan age: TimeInterval) {
+        let cutoff = Date().addingTimeInterval(-age)
+        ioQueue.async {
+            guard let root = try? rootURL(create: false),
+                  let directories = try? FileManager.default.contentsOfDirectory(
+                    at: root,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                  ) else { return }
+            for directory in directories {
+                for snapshot in snapshotURLs(in: directory) {
+                    let date = (try? snapshot.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    if date < cutoff { try? FileManager.default.removeItem(at: snapshot) }
+                }
+                if ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).isEmpty {
+                    try? FileManager.default.removeItem(at: directory)
+                }
+            }
         }
-        let applicationSupport = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let directory = applicationSupport
-            .appendingPathComponent("MATER", isDirectory: true)
-            .appendingPathComponent("Recovery", isDirectory: true)
+    }
+
+    static func clearAll() -> Bool {
+        pending.values.forEach { $0.cancel() }
+        pending.removeAll()
+        return ioQueue.sync {
+            guard let root = try? rootURL(create: false) else { return true }
+            do {
+                if FileManager.default.fileExists(atPath: root.path) {
+                    try FileManager.default.removeItem(at: root)
+                }
+                return true
+            } catch {
+                return false
+            }
+        }
+    }
+
+    private static func directoryURL(identifier: String) throws -> URL {
+        let directory = try rootURL(create: true)
             .appendingPathComponent(identifier, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    private static func rootURL(create: Bool) throws -> URL {
+        let root: URL
+        if let override = ProcessInfo.processInfo.environment["MATER_RECOVERY_DIRECTORY"], !override.isEmpty {
+            root = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            let applicationSupport = try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: create
+            )
+            root = applicationSupport
+                .appendingPathComponent("MATER", isDirectory: true)
+                .appendingPathComponent("Recovery", isDirectory: true)
+        }
+        if create { try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true) }
+        return root
     }
 
     private static func snapshotURLs(in directory: URL) -> [URL] {

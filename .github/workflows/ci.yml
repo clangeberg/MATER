@@ -1,0 +1,40 @@
+name: macOS CI and release artifacts
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version
+      - name: Run regression suite
+        run: ./scripts/run-core-tests.sh
+      - name: Build and package universal app
+        run: ./scripts/package-release.sh
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MATER-${{ github.ref_name }}-macOS
+          path: |
+            dist/MATER-*-macOS-universal.zip
+            dist/MATER-*-macOS-universal.zip.sha256
+      - name: Attach artifacts to tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          notes="docs/releases/${tag}.md"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/MATER-*-macOS-universal.zip dist/MATER-*-macOS-universal.zip.sha256 --clobber
+          else
+            gh release create "$tag" dist/MATER-*-macOS-universal.zip dist/MATER-*-macOS-universal.zip.sha256 --title "MATER ${tag#v}" --notes-file "$notes" --prerelease
+          fi

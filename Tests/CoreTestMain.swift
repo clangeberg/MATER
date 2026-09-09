@@ -7,6 +7,7 @@ struct CoreTestMain {
     static func main() async {
         roundTripPreservesStockholmText()
         joinsInterleavedStockholmBlocks()
+        rejectsDuplicateNamesWithoutJoiningThem()
         parsesCrossingPseudoknotLayers()
         groupsBulgedStemsAndMajorElements()
         recognizesCanonicalBasePairs()
@@ -22,6 +23,7 @@ struct CoreTestMain {
         await runsCaCoFoldRefinementAndDiscardsTemporaryArtifacts()
         await runsRScapeIntegrationWhenRequested()
         refinesEntireAlignmentWithoutChangingSequences()
+        cancelsWholeAlignmentRefinementSafely()
         alignmentEditingKeepsRowsSynchronized()
         advancedGapAndRectangularEditing()
         stemAwareAndLinkedArmShifting()
@@ -127,6 +129,34 @@ struct CoreTestMain {
         expect(file.normalizedInterleavedSegmentCount == 4, "interleaved normalization count")
         expect(file.rendered.contains("# a preserved block comment"), "interleaved raw comments were not preserved")
         expect(file.validationIssues.allSatisfy { $0.severity != .error }, "normalized interleaved file has validation errors")
+    }
+
+    private static func rejectsDuplicateNamesWithoutJoiningThem() {
+        let duplicate = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        same AC-G
+        same GU-A
+        #=GC SS_cons ....
+        //
+        """)
+        expect(duplicate.sequenceRows.count == 2, "duplicate sequence rows were silently concatenated")
+        expect(duplicate.normalizedInterleavedSegmentCount == 0, "same-block duplicate was treated as wrapping")
+        expect(
+            duplicate.validationIssues.contains { $0.severity == .error && $0.message.contains("Duplicate sequence name 'same'") },
+            "duplicate sequence name did not receive a distinct validation error"
+        )
+
+        let implicitWrap = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one AC
+        two GU
+        one GU
+        two AC
+        //
+        """)
+        expect(implicitWrap.sequenceRows.count == 2, "unseparated wrapped block was not recognized")
+        expect(implicitWrap.alignmentLength == 4, "unseparated wrapped segments were not joined")
+        expect(implicitWrap.normalizedInterleavedSegmentCount == 2, "unseparated wrap normalization count")
     }
 
     private static func parsesCrossingPseudoknotLayers() {
@@ -552,6 +582,7 @@ struct CoreTestMain {
         needs_au -A--U-
         needs_gc -G--C-
         aligned  A---U-
+        #=GR needs_au PP .9..8.
         #=GC SS_cons <...>.
         //
         """)
@@ -564,27 +595,57 @@ struct CoreTestMain {
         expect(SequenceIntegrityAnalyzer.preservesSequences(from: file, to: result.file), "whole-alignment refinement changed ungapped sequences")
         expect(result.file.records[result.file.sequenceRows[0].recordIndex].aligned == "A---U-", "AU row was not refined")
         expect(result.file.records[result.file.sequenceRows[1].recordIndex].aligned == "G---C-", "GC row was not refined")
+        let pp = result.file.rows.first { row in
+            if case .residueAnnotation(let sequence, let tag) = row.kind { return sequence == "needs_au" && tag == "PP" }
+            return false
+        }
+        expect(pp.map { result.file.records[$0.recordIndex].aligned } == "9...8.", "Wiggle-refine did not move #=GR PP with residues")
         expect(file.records[file.sequenceRows[0].recordIndex].aligned == "-A--U-", "source alignment was mutated")
 
         let secondPass = StemEditSuggester.refineEntireAlignment(in: result.file, preferLinked: true)
         expect(secondPass.converged && secondPass.editCount == 0, "refined alignment should be a local fixed point")
     }
 
+    private static func cancelsWholeAlignmentRefinementSafely() {
+        let file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one -A--U-
+        #=GR one PP .9..8.
+        #=GC SS_cons <...>.
+        //
+        """)
+        do {
+            _ = try StemEditSuggester.refineEntireAlignmentCancellable(
+                in: file,
+                preferLinked: true,
+                shouldCancel: { true }
+            )
+            expect(false, "cancelled refinement returned a result")
+        } catch is CancellationError {
+            expect(file.records[file.sequenceRows[0].recordIndex].aligned == "-A--U-", "cancellation mutated the source")
+        } catch {
+            expect(false, "cancelled refinement threw an unexpected error")
+        }
+    }
+
     private static func alignmentEditingKeepsRowsSynchronized() {
         var file = StockholmParser.parse("""
         # STOCKHOLM 1.0
-        one A-CG
-        two A-GG
-        #=GC SS_cons <..>
+        one .A-CG
+        two .A-GG
+        #=GR one PP .9.87
+        #=GC SS_cons <...>
         //
         """)
-        expect(file.shift(row: 0, selection: 2...2, direction: -1), "shift failed")
-        expect(file.records[file.sequenceRows[0].recordIndex].aligned == "AC-G", "shift output")
+        expect(file.shift(row: 0, selection: 1...1, direction: -1), "shift failed")
+        expect(file.records[file.sequenceRows[0].recordIndex].aligned == "A.-CG", "shift output")
+        let ppRow = file.rows.first { $0.kind.isPosteriorProbability }!
+        expect(file.records[ppRow.recordIndex].aligned == "9..87", "#=GR PP did not travel with shifted residues")
         file.insertColumn(at: 2)
-        expect(file.alignmentLength == 5, "insert column length")
-        expect(Set(file.rows.map { file.records[$0.recordIndex].aligned.count }) == [5], "rows became unsynchronized")
+        expect(file.alignmentLength == 6, "insert column length")
+        expect(Set(file.rows.map { file.records[$0.recordIndex].aligned.count }) == [6], "rows became unsynchronized")
         expect(file.deleteColumn(at: 2), "all-gap column delete")
-        expect(file.alignmentLength == 4, "delete column length")
+        expect(file.alignmentLength == 5, "delete column length")
     }
 
     private static func advancedGapAndRectangularEditing() {
@@ -601,14 +662,18 @@ struct CoreTestMain {
 
         var gapFile = StockholmParser.parse("""
         # STOCKHOLM 1.0
-        one ACG-U
+        one ACG.U
+        #=GR one PP 987.6
         #=GC SS_cons .....
         //
         """)
         expect(gapFile.openGap(row: 0, at: 1), "open-gap command failed")
-        expect(gapFile.records[gapFile.sequenceRows[0].recordIndex].aligned == "A-CGU", "open-gap output")
+        expect(gapFile.records[gapFile.sequenceRows[0].recordIndex].aligned == "A.CGU", "open-gap output and gap glyph preservation")
+        let ppRow = gapFile.rows.first { $0.kind.isPosteriorProbability }!
+        expect(gapFile.records[ppRow.recordIndex].aligned == "9.876", "open-gap did not move #=GR with residues")
         expect(gapFile.closeGap(row: 0, at: 1), "close-gap command failed")
-        expect(gapFile.records[gapFile.sequenceRows[0].recordIndex].aligned == "ACGU-", "close-gap output")
+        expect(gapFile.records[gapFile.sequenceRows[0].recordIndex].aligned == "ACGU.", "close-gap output and gap glyph preservation")
+        expect(gapFile.records[ppRow.recordIndex].aligned == "9876.", "close-gap did not move #=GR with residues")
     }
 
     private static func stemAwareAndLinkedArmShifting() {

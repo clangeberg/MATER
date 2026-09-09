@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 0.8.1 • macOS 13 or newer**
+**MATER version 0.9.0 • macOS 13 or newer**
 
 Manual revision: 1 September 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.8.1.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.9.0.
 
 > **Alpha safety rule:** Work on a duplicate of an important alignment until MATER has been validated on your own files. Keep **Alignment locked** during normal curation.
 
@@ -68,12 +68,12 @@ In this guide:
 
 ### 2.2 Installing an alpha ZIP
 
-1. Unzip `MATER-0.8.1-macOS-universal.zip`.
+1. Unzip `MATER-0.9.0-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 0.8.1 is ad-hoc signed and is not Apple-notarized. This is acceptable for a supervised alpha but produces more Gatekeeper friction than a Developer ID-signed, notarized release.
+Version 0.9.0 is ad-hoc signed and is not Apple-notarized. No paid Apple Developer Program membership is required to build it, but this private alpha produces more Gatekeeper friction than a Developer ID-signed, notarized release.
 
 ### 2.3 Opening an alignment
 
@@ -107,13 +107,14 @@ MATER expects one alignment and one aligned segment per displayed row. All seque
 
 For a single-block file, MATER preserves the original record order, spacing around parsed alignment values, comments, metadata, line-ending style, and unknown raw lines. Editing an aligned row changes its aligned value while retaining its parsed prefix and suffix.
 
-Wrapped/interleaved Stockholm is normalized on open. Later segments with the same sequence name, `#=GC` tag, or `#=GR` sequence/tag identity are concatenated onto the first logical row. Raw metadata, comments, and blank lines are retained, but saving writes one complete aligned string per logical row rather than recreating the visual block wrapping. A validation warning reports how many later row segments were joined.
+Wrapped/interleaved Stockholm is normalized on open. MATER recognizes an explicit blank block boundary, or an unseparated repeat of the first row after a multi-row block, before concatenating matching sequence, `#=GC`, or `#=GR` segments. A repeated name inside one block is retained as a separate row and reported as a duplicate-name validation error rather than silently doubled. Raw metadata, comments, and blank lines are retained, but saving writes one complete aligned string per logical row rather than recreating the visual block wrapping. A validation warning reports how many later row segments were joined.
 
 ### 3.3 Input restrictions in the current alpha
 
 - Use a single Stockholm alignment per file.
 - Single-block and wrapped/interleaved sequence, `#=GC`, and `#=GR` rows are accepted. Interleaved files are written back in normalized single-block form.
 - All displayed rows should have the same alignment length. MATER reports inconsistent widths as validation errors.
+- Sequence names must be unique. A `#=GR` row whose sequence name is absent or duplicated is an error because its owner cannot be determined safely.
 - Sequence names are not renamed, added, or deleted through the current GUI.
 - UTF-8 and ISO Latin-1 input can be opened. Saved output is UTF-8.
 
@@ -155,6 +156,8 @@ The editor window has six functional regions.
 6. **Bottom status and overview:** integrity and validation state, selection details, aligned stem blocks, entropy, gap frequency, and occupied-pair violations.
 
 Hover over a control to see its short help description. The footer reports the current row, column, paired partner, entropy, gap frequency, dimensions, validation state, and most recent action.
+
+The macOS **MATER** menu supplies the standard About panel and a real **Settings** window. Settings contains persistent residue colors, the remembered R-scape executable location, and recovery-data controls. **Help → MATER User Guide** opens the version-matched manual bundled inside the app, so the reference remains available offline.
 
 ## 5. Ten-minute tutorial
 
@@ -253,6 +256,8 @@ When multiple rows are selected, direct sequence typing is applied only to seque
 - A discontinuous pair/stem selection is honored when the pasted line fits the number of selected columns; otherwise MATER pastes continuously from the first selected column.
 
 Paste is still subject to Alignment Integrity mode. A paste that changes an ungapped sequence is rejected while locked.
+
+When a gap-only edit changes a sequence's column placement, MATER applies the same complete column permutation to every matching `#=GR sequence tag` row. Thus PP, per-sequence SS, and other residue annotations remain attached to residue ordinal rather than being left at their former alignment columns. MATER also verifies this association before committing a residue move. Because Stockholm requires unique sequence identifiers, a duplicate name is a validation error and MATER refuses to guess which duplicate owns a `#=GR` row.
 
 ### 7.4 Shifting a selected block
 
@@ -652,6 +657,8 @@ When the current document has a file location, one click:
 4. Repeats complete passes until no supported move can improve the structural objective, or until the 100-pass safety limit is reached.
 5. Writes a new file beside the source as `NAME-MATER-wiggle-refined.sto` and opens it as a new MATER document. If that name exists, MATER adds `-2`, `-3`, and so on; it never overwrites the source or an earlier result.
 
+While the search runs, the toolbar shows the current pass, approximate sequence progress, and accepted-edit count. The **Wiggle-refine** button becomes **Cancel**. Cancellation is checked between passes, rows, and stem searches; cancelling writes no result, does not mutate the source alignment, and leaves earlier saved files untouched.
+
 For a new unsaved document, MATER asks where to write the refined copy.
 
 Every automatically accepted edit must satisfy all of these conditions:
@@ -803,7 +810,9 @@ MATER keeps rolling snapshots under:
 ~/Library/Application Support/MATER/Recovery/
 ```
 
-Each opened baseline receives a content-derived recovery folder. Normal edits schedule a pre-edit snapshot after a short debounce; MATER retains up to 30 snapshots per baseline. **Create recovery snapshot** immediately stores the current document. **Restore latest recovery snapshot** restores the newest different snapshot and registers undo.
+Each saved file path receives its own recovery folder, so two documents that begin with identical content do not share snapshots. Unsaved documents receive a unique session identity. Normal edits schedule a pre-edit snapshot after a short debounce; MATER retains up to 30 snapshots per document and removes snapshots older than 30 days. **Create recovery snapshot** immediately stores the current document. **Restore latest recovery snapshot** restores the newest different snapshot and registers undo.
+
+Use **MATER → Settings → Recovery → Clear all recovery data** to permanently remove every MATER recovery snapshot. This never removes saved Stockholm files.
 
 While locked, a recovery that would alter ungapped sequence data is rejected.
 
@@ -1014,7 +1023,7 @@ The same Finder `PATH` rule applies. In the chooser, select the executable that 
 
 ## 24. Current limitations
 
-Version 0.8.1 intentionally has a bounded scope:
+Version 0.9.0 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
@@ -1068,6 +1077,14 @@ From the repository root:
 ```
 
 The test script covers parser round trips, structure and pseudoknot parsing, base-pair rules, pair variation, entropy, R2R consensus, gap frequency, integrity, quality metrics, suggestions, editing operations, search/navigation, PDF/SVG export, recovery, and document comparison.
+
+The optional synthetic performance benchmark does not modify any files:
+
+```bash
+./scripts/benchmark-performance.sh 5000 1000
+```
+
+Both scripts use the active Xcode Command Line Tools SDK. Set `MATER_SDK_PATH=/path/to/MacOSX.sdk` only when an explicit SDK override is needed.
 
 To audit additional Stockholm files without modifying them:
 
@@ -1123,7 +1140,7 @@ dist/MATER.app
 
 A concise methods statement for work performed with this alpha is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.8.1. Ungapped sequence integrity was protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.9.0. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
 If the optional integration was used, also report the independently installed R-scape version and whether **Run R-scape** evaluate-given-structure analysis or **CaCoFold-refine** was used. For statistical analysis, preserve and report the retained command/log and output files. For CaCoFold-refine, preserve the source and refined Stockholm files and report R-scape's version because MATER deliberately discards the intermediate run products. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
 

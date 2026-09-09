@@ -10,7 +10,7 @@ struct RScapeSummary: Equatable, Sendable {
 }
 
 struct RScapeResult: Identifiable, Equatable, Sendable {
-    let id = UUID()
+    var id: String { outputDirectory.standardizedFileURL.path }
     let outputDirectory: URL
     let covarianceTableURL: URL
     let powerTableURL: URL?

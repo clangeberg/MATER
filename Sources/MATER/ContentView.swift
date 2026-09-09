@@ -31,13 +31,15 @@ struct DocumentEditorView: View {
     @ObservedObject var document: StockholmDocument
     let sourceURL: URL?
     @StateObject private var state = EditorState()
-    @StateObject private var residuePalette = ResiduePaletteSettings()
+    @EnvironmentObject private var residuePalette: ResiduePaletteSettings
     @State private var searchText = ""
     @State private var pendingExportFormat: AlignmentExportFormat?
     @State private var exportConfiguration = AlignmentExportConfiguration()
     @State private var suggestedEdits: [StemEditSuggestion] = []
     @State private var showingSuggestedEdits = false
     @State private var isWiggleRefining = false
+    @State private var wiggleProgress: AlignmentRefinementProgress?
+    @State private var wiggleTask: Task<Void, Never>?
     @State private var isCaCoFoldRefining = false
     @StateObject private var rScapeController = RScapeController()
     @FocusState private var searchFieldFocused: Bool
@@ -81,6 +83,9 @@ struct DocumentEditorView: View {
             minHeight: 650
         )
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            document.configureRecoverySourceURL(sourceURL)
+        }
         .sheet(item: $pendingExportFormat) { format in
             ExportOptionsView(
                 format: format,
@@ -106,6 +111,9 @@ struct DocumentEditorView: View {
             guard !notice.isEmpty else { return }
             state.statusMessage = notice
             NSSound.beep()
+        }
+        .onDisappear {
+            wiggleTask?.cancel()
         }
     }
 
@@ -244,18 +252,28 @@ struct DocumentEditorView: View {
                 }
                 .disabled(state.selectingConsensus || !document.analysis.rows.indices.contains(state.selectedRow) || !document.analysis.rows[state.selectedRow].kind.isSequence)
                 .help("Preview gap-only shifts that improve the selected sequence's current stem.")
-                Button(action: wiggleRefineAlignment) {
+                Button(action: {
+                    if isWiggleRefining {
+                        wiggleTask?.cancel()
+                    } else {
+                        wiggleRefineAlignment()
+                    }
+                }) {
                     if isWiggleRefining {
                         HStack(spacing: 5) {
                             ProgressView().controlSize(.mini)
-                            Text("Wiggling…")
+                            if let wiggleProgress {
+                                Text("Cancel \(Int(wiggleProgress.fractionCompleted * 100))%")
+                            } else {
+                                Text("Cancel Wiggle")
+                            }
                         }
                     } else {
                         Label("Wiggle-refine", systemImage: "sparkles")
                     }
                 }
-                .disabled(isWiggleRefining || isCaCoFoldRefining || document.analysis.structurePairs.isEmpty)
-                .help("Create and open a new alignment after applying MATER's safe gap-only helix-window refinements to convergence. The current file is not changed.")
+                .disabled(isCaCoFoldRefining || (!isWiggleRefining && document.analysis.structurePairs.isEmpty))
+                .help(isWiggleRefining ? "Cancel Wiggle-refine without writing an output file." : "Create and open a new alignment after applying MATER's safe gap-only helix-window refinements to convergence. The current file is not changed.")
                 Button(action: caCoFoldRefineStructure) {
                     if isCaCoFoldRefining {
                         HStack(spacing: 5) {
@@ -475,8 +493,10 @@ struct DocumentEditorView: View {
         document.mutate("Apply Suggested Stem Shift", undoManager: undoManager) { file in
             guard file.records.indices.contains(suggestion.recordIndex),
                   file.records[suggestion.recordIndex].aligned == suggestion.expectedAligned else { return }
-            file.records[suggestion.recordIndex].aligned = suggestion.proposedAligned
-            applied = true
+            applied = file.replaceSequenceGapPlacement(
+                recordIndex: suggestion.recordIndex,
+                with: suggestion.proposedAligned
+            )
         }
         guard applied else {
             state.statusMessage = "The alignment changed and this suggestion is no longer applicable."
@@ -500,25 +520,49 @@ struct DocumentEditorView: View {
         let source = document.file
         let preferLinked = state.linkPairedStemShifts
         isWiggleRefining = true
+        wiggleProgress = nil
         state.statusMessage = "Wiggle-refining every sequence and annotated stem… The current alignment remains unchanged."
 
-        Task {
-            let result = await Task.detached(priority: .userInitiated) {
-                StemEditSuggester.refineEntireAlignment(
-                    in: source,
-                    preferLinked: preferLinked,
-                    maximumPasses: 100
-                )
-            }.value
-
+        wiggleTask = Task {
             do {
+                let worker = Task.detached(priority: .userInitiated) {
+                    try StemEditSuggester.refineEntireAlignmentCancellable(
+                        in: source,
+                        preferLinked: preferLinked,
+                        maximumPasses: 100,
+                        shouldCancel: {
+                            withUnsafeCurrentTask { $0?.isCancelled ?? false }
+                        },
+                        progress: { progress in
+                            Task { @MainActor in
+                                wiggleProgress = progress
+                                state.statusMessage = "Wiggle-refine pass \(progress.pass): \(progress.completedRows)/\(progress.totalRows) sequences, \(progress.editCount) accepted edits…"
+                            }
+                        }
+                    )
+                }
+                let result = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                try Task.checkCancellation()
                 try result.file.rendered.write(to: outputURL, atomically: true, encoding: .utf8)
                 isWiggleRefining = false
+                wiggleProgress = nil
+                wiggleTask = nil
                 let convergenceText = result.converged ? "converged" : "reached the 100-pass safety limit"
                 state.statusMessage = "Created \(outputURL.lastPathComponent): \(result.editCount) gap edit\(result.editCount == 1 ? "" : "s") across \(result.changedSequenceCount) sequence\(result.changedSequenceCount == 1 ? "" : "s"); \(convergenceText)."
                 await openGeneratedStockholm(outputURL)
+            } catch is CancellationError {
+                isWiggleRefining = false
+                wiggleProgress = nil
+                wiggleTask = nil
+                state.statusMessage = "Wiggle-refine cancelled. The current alignment was not changed and no output was written."
             } catch {
                 isWiggleRefining = false
+                wiggleProgress = nil
+                wiggleTask = nil
                 state.statusMessage = "Could not write the refined alignment: \(error.localizedDescription)"
                 presentAlert(
                     title: "Could not create the Wiggle-refined alignment",
@@ -773,7 +817,7 @@ struct DocumentEditorView: View {
             columnText = "\(columns.count) paired/stem cols (\((columns.first ?? 0) + 1)–\((columns.last ?? 0) + 1))"
         }
         var pieces = [rowText, columnText]
-        if let pair = StructureParser.pair(at: state.selectedColumn, in: document.file) {
+        if let pair = document.analysis.structurePairs.first(where: { $0.left == state.selectedColumn || $0.right == state.selectedColumn }) {
             let partner = pair.left == state.selectedColumn ? pair.right : pair.left
             pieces.append("pair \(partner + 1)")
         }
@@ -786,7 +830,7 @@ struct DocumentEditorView: View {
     }
 
     private func jumpToPair() {
-        guard let pair = StructureParser.pair(at: state.selectedColumn, in: document.file) else {
+        guard let pair = document.analysis.structurePairs.first(where: { $0.left == state.selectedColumn || $0.right == state.selectedColumn }) else {
             state.statusMessage = "The selected column is not paired in any SS_cons layer."
             NSSound.beep()
             return
@@ -797,12 +841,12 @@ struct DocumentEditorView: View {
     }
 
     private func selectStem() {
-        guard let pair = StructureParser.pair(at: state.selectedColumn, in: document.file) else {
+        guard let pair = document.analysis.structurePairs.first(where: { $0.left == state.selectedColumn || $0.right == state.selectedColumn }) else {
             state.statusMessage = "The selected column is not part of a defined stem."
             NSSound.beep()
             return
         }
-        let columns = Set(StructureParser.pairs(in: document.file).filter { $0.stem == pair.stem }.flatMap { [$0.left, $0.right] })
+        let columns = Set(document.analysis.structurePairs.filter { $0.stem == pair.stem }.flatMap { [$0.left, $0.right] })
         state.selectColumns(columns, row: state.selectedRow)
         state.statusMessage = "Selected stem \(pair.stem + 1): \(columns.count) paired columns."
     }

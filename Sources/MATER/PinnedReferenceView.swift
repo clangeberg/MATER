@@ -65,8 +65,8 @@ struct PinnedReferencePanel: View {
 
     private func makeDisplayedRows() -> [PinnedRow] {
         var result: [PinnedRow] = []
-        let rows = document.file.rows
-        let pairs = StructureParser.pairs(in: document.file)
+        let rows = document.analysis.rows
+        let pairs = document.analysis.structurePairs
         var pairByColumn: [Int: BasePair] = [:]
         for pair in pairs {
             if pairByColumn[pair.left] == nil { pairByColumn[pair.left] = pair }

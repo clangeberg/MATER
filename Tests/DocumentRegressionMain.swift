@@ -5,6 +5,15 @@ import Foundation
 struct DocumentRegressionMain {
     @MainActor
     static func main() {
+        precondition(StockholmDocument.clearAllRecoveryData(), "Could not clear the isolated recovery-test directory.")
+        let firstPathDocument = StockholmDocument()
+        let secondPathDocument = StockholmDocument()
+        firstPathDocument.configureRecoverySourceURL(URL(fileURLWithPath: "/tmp/mater-first/same.sto"))
+        secondPathDocument.configureRecoverySourceURL(URL(fileURLWithPath: "/tmp/mater-second/same.sto"))
+        precondition(firstPathDocument.createRecoverySnapshot() != nil)
+        precondition(firstPathDocument.recoverySnapshotCount == 1)
+        precondition(secondPathDocument.recoverySnapshotCount == 0, "Identical files at different paths shared recovery data.")
+
         let document = StockholmDocument()
         precondition(document.changeSummary.changedCells == 0)
         precondition(!document.sequenceEditingUnlocked, "Alignment Integrity mode should be enabled by default.")

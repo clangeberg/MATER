@@ -7,11 +7,7 @@ state_test_binary="${TMPDIR:-/tmp}/mater-editor-state-tests"
 export_test_binary="${TMPDIR:-/tmp}/mater-export-tests"
 document_test_binary="${TMPDIR:-/tmp}/mater-document-tests"
 module_cache="${TMPDIR:-/tmp}/mater-core-module-cache"
-sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
-compatibility_sdk="/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk"
-if [[ -d "$compatibility_sdk" ]]; then
-  sdk_path="$compatibility_sdk"
-fi
+sdk_path="${MATER_SDK_PATH:-$(xcrun --sdk macosx --show-sdk-path)}"
 
 swiftc \
   -sdk "$sdk_path" \

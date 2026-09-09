@@ -4,9 +4,11 @@
 
 **MATER — Manual Alignment Tool for Evolutionary RNA** is a native, structure-aware Stockholm alignment editor designed for fast manual RNA alignment curation on macOS.
 
+![MATER editing an Rfam Guanidine-III riboswitch alignment](docs/images/mater-hero.png)
+
 ## Install
 
-1. Download `MATER-0.8.1-macOS-universal.zip` from the [v0.8.1 closed-alpha release](https://github.com/clangeberg/MATER/releases/tag/v0.8.1).
+1. Download `MATER-0.9.0-macOS-universal.zip` from the [v0.9.0 private-alpha release](https://github.com/clangeberg/MATER/releases/tag/v0.9.0).
 2. Unzip it and drag `MATER.app` into Applications.
 3. On first launch, right-click the app and choose **Open**. If macOS still blocks it, allow MATER under **System Settings → Privacy & Security** and open it again.
 
@@ -21,7 +23,9 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 
 - Native macOS document GUI for `.sto`, `.stk`, and `.stockholm` files
 - Preservation of Stockholm metadata and comments; single-block files round-trip exactly, while wrapped/interleaved aligned rows are safely normalized into one complete row on save
+- Duplicate sequence names are retained as separate rows and reported as validation errors instead of being mistaken for wrapped continuations
 - Editable sequence, `#=GC`, and `#=GR` alignment rows
+- Atomic sequence-plus-`#=GR` gap movement: PP, SS, and other per-residue annotations follow the same residue permutation through shifts, gap opening/closing, suggestions, paste, reversion, and Wiggle-refine
 - Live insertion-tolerant stem coloring across every `SS_cons*` layer, with one- and two-column bulges retained in the same stem and noncanonical pairs left uncolored
 - Optional **Element** coloring that follows a continuous helix through arbitrarily large bulges and internal loops, splitting only at true branch junctions, disjoint helices, or different WUSS pairing classes
 - WUSS/Rfam pairs: `<>`, `()`, `[]`, `{}`, and `A/a` through `Z/z`
@@ -39,7 +43,7 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Explicit sequence-editing unlock for intentional residue corrections, with persistent comparison against the opened file
 - Collapsible Structural Quality Inspector with per-stem support metrics, residue-pair counts, pair-by-pair summaries, and clickable observations
 - Gap-only suggested stem fixes that optimize both complete helix arms plus up to three neighboring unpaired columns, with before/after previews and structural/profile scoring
-- One-click **Wiggle-refine** that iterates safe coordinated helix-arm and neighboring gap improvements to a local fixed point, writes a new Stockholm file, and leaves the source untouched
+- One-click **Wiggle-refine** that iterates safe coordinated helix-arm and neighboring gap improvements to a local fixed point, reports pass/sequence/edit progress, can be cancelled, writes a new Stockholm file, and leaves the source untouched
 - Optional **CaCoFold-refine** through a separately installed R-scape, retaining only the improved Stockholm alignment while discarding intermediate analysis products
 - Optional R-scape evaluate-given-structure (`-s`) integration with retained `.cov` and `.power` tables that open directly in TextEdit, an R2R PDF/SVG drawing, and a closable zoomable PDFKit preview inside MATER; executable, `bin`, and installation-folder selection are supported
 - Display-only sequence filtering and sorting by selected-stem pairing violations, name, violation count, or alignment-wide gap fraction
@@ -51,7 +55,7 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Live gap-frequency plot, interactive plot columns, and adjustable analysis thresholds
 - Search by sequence name, motif, or alignment column
 - Navigation among noncanonical pairs, high-entropy columns, gap-rich columns, and validation problems
-- Rolling recovery snapshots, changed-cell highlighting, and baseline region/row reversion
+- Per-file rolling recovery snapshots, 30-day cleanup, user-controlled recovery clearing, changed-cell highlighting, and baseline region/row reversion
 - Full-alignment vector export to PDF or SVG using the current colors and display options, including the R2R consensus row when visible
 - Export titles, legends, numbering intervals, adjustable name width, selected rows/columns, and tiled multi-page PDF
 - Shift selected residues left/right into adjacent gaps, automatically expanding a single structural base to its complete stem arm
@@ -61,6 +65,7 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Insert alignment-wide gap columns, delete one all-gap column, or remove every all-gap column at once
 - Revision-based rendering caches for responsive navigation and coloring
 - Undo/redo, copy/paste, validation, and round-trip saving
+- Native About, Settings, and Help commands; persistent residue colors and R-scape location are managed in Settings
 
 ## Build
 
@@ -71,6 +76,8 @@ Run:
 ```
 
 The double-clickable universal app is created at `dist/MATER.app`, supports both Apple-silicon and Intel Macs, and is ad-hoc signed for local use.
+
+MATER 0.9.0 is built and tested with Swift 5.10 or newer and the matching macOS SDK supplied by Xcode Command Line Tools. To select a non-active SDK explicitly, set `MATER_SDK_PATH=/path/to/MacOSX.sdk` for the build or test command.
 
 Run the regression suite with:
 
@@ -84,6 +91,16 @@ Audit the included Rfam examples with:
 ./scripts/run-core-tests.sh Examples/Rfam/*.sto
 ```
 
+Run the reproducible large-alignment benchmark with:
+
+```bash
+./scripts/benchmark-performance.sh 5000 1000
+```
+
+Tagged pushes are tested and packaged by the macOS GitHub Actions workflow. Release ZIPs are accompanied by a SHA-256 file.
+
+MATER source code is available under the [BSD 3-Clause License](LICENSE). Citation metadata is provided in [CITATION.cff](CITATION.cff).
+
 ## Core editing controls
 
 - Click or drag to select cells; Shift-click or Shift–arrows extends a rectangular selection.
@@ -93,7 +110,7 @@ Audit the included Rfam examples with:
 - Keep **Alignment locked** for normal curation. Gap movement and annotations remain editable, while residue replacement, insertion, deletion, and sequence reordering are protected.
 - Select a stem to populate the **Quality Inspector**; click a reported problem to jump to that sequence and pair.
 - Use **Suggest fixes** to preview width-preserving gap arrangements across both helix arms and their ±3-column unpaired neighborhoods without changing ungapped residues.
-- Use **Wiggle-refine** to scan every sequence and annotated stem, write a uniquely named `*-MATER-wiggle-refined.sto`, and open it in MATER without approving individual edits. Wiggle-refinement never decreases total canonical support or increases definite noncanonical observations; gaps are not treated as failures.
+- Use **Wiggle-refine** to scan every sequence and annotated stem, write a uniquely named `*-MATER-wiggle-refined.sto`, and open it in MATER without approving individual edits. The button displays progress and becomes a cancel button while running. Wiggle-refinement never decreases total canonical support or increases definite noncanonical observations; gaps are not treated as failures.
 - Use **CaCoFold-refine** to run an installed R-scape in evaluate-given-structure CaCoFold mode, write only `*-MATER-CaCoFold-refined.sto`, and open that result in MATER. The original alignment and the separate **Run R-scape** statistical-results workflow are unchanged.
 - Use **Run R-scape** to evaluate the current `SS_cons*` structure with an installed R-scape. Finder apps may not inherit Terminal's PATH; **Locate R-scape…** accepts the executable, `bin` folder, or installation folder and prefers the installed copy beside R2R. MATER also supplies a private writable working directory for R-scape's internal FastTree files.
 - Click or drag in the combined structure and analysis overview to navigate long alignments; matching block colors identify paired stem arms.
@@ -109,6 +126,7 @@ Audit the included Rfam examples with:
 - Use **Changes** to compare against the opened file, revert a region or row, and manage recovery snapshots.
 - Use **Export** to save the complete or selected colored alignment as vector PDF or SVG.
 - Use **View & columns** to insert or remove gap columns, show PP rows, toggle the R2R consensus, combined overview or inspector, configure plots, and adjust thresholds.
+- Use **MATER → Settings** to change residue colors, locate R-scape, or clear recovery data, and **Help → MATER User Guide** for the version-matched manual bundled with the app.
 
 The original file is not modified until you save. Keep versioned copies of important alignments while this early build is being validated.
 

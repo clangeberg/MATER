@@ -1,5 +1,5 @@
 .build/
-.build-x86/
+.build-*/
 dist/
 .DS_Store
 *.swp
