@@ -39,6 +39,8 @@ jobs:
           notes="docs/releases/${tag}.md"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/MATER-*-macOS-universal.zip dist/MATER-*-macOS-universal.zip.sha256 --clobber
-          else
+          elif [[ "$tag" == *-* ]]; then
             gh release create "$tag" dist/MATER-*-macOS-universal.zip dist/MATER-*-macOS-universal.zip.sha256 --title "MATER ${tag#v}" --notes-file "$notes" --prerelease
+          else
+            gh release create "$tag" dist/MATER-*-macOS-universal.zip dist/MATER-*-macOS-universal.zip.sha256 --title "MATER ${tag#v}" --notes-file "$notes"
           fi
