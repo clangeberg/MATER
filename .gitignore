@@ -1,5 +1,8 @@
+# Swift build products
 .build/
 .build-*/
 dist/
+
+# Local macOS and editor files
 .DS_Store
 *.swp
