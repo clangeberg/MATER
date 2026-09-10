@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0 — 2026-09-10
+
+- **First public release:** the structure-aware Stockholm editor, full user guide, Rfam teaching files, and universal macOS app are ready for general use.
+- **Manual RNA curation:** linked stem-arm gap movement, partner highlighting, pseudoknot-aware structure editing, residue colors, and stem/element color modes.
+- **Alignment safeguards:** locked ungapped-sequence integrity, registered `#=GR` movement, stable undo/redo, validation before save, and rolling local recovery.
+- **Structural context:** R2R-style consensus, entropy, gap-frequency, occupied-pair problem tracks, a Structural Quality Inspector, and large-alignment navigation.
+- **Refinement:** previewed helix-neighborhood suggestions, cancellable whole-alignment Wiggle-refine, and optional CaCoFold-refine.
+- **External analysis:** optional R-scape evaluate-given-structure runs with pairwise tables and an in-window R2R drawing.
+- **Release checks:** deterministic edit properties, Rfam corpus compatibility, large GUI/render/export stress tests, and native Apple-silicon/Intel packaging.
+- **Public project files:** BSD 3-Clause license, citation metadata, privacy policy, contribution notes, issue forms, and stable-tag release automation.
+
 ## 0.9.1 — 2026-09-09
 
 - **Randomized integrity suite:** 10,000 deterministic safe edits plus malformed-input fuzzing, checking width, ungapped sequences, `#=GR` attachment, WUSS, stable validation, and save/reopen invariants.
