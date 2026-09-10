@@ -2,6 +2,7 @@
 
 import PackageDescription
 
+// Native macOS application package for MATER.
 let package = Package(
     name: "MATERMac",
     platforms: [.macOS(.v13)],
