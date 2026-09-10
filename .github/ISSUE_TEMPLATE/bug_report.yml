@@ -1,0 +1,68 @@
+name: Bug report
+description: Report reproducible incorrect behavior, a crash, or possible Stockholm-data damage.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve MATER. Do not upload unpublished or sensitive biological data. Prefer a minimal synthetic Stockholm example, and keep an untouched copy of any affected file.
+  - type: input
+    id: version
+    attributes:
+      label: MATER version and build
+      description: Use About MATER, or paste the first two lines from Changes → Copy Diagnostics.
+      placeholder: 0.9.1 (build 15)
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS and Mac architecture
+      placeholder: macOS 15.6, Apple silicon
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Include what you expected, what occurred, and any exact error text.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open …
+        2. Select …
+        3. Choose …
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Privacy-safe diagnostics
+      description: Paste Changes → Copy Diagnostics. It excludes sequences and annotation contents; still review file and executable paths before sharing.
+      render: text
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal sanitized Stockholm example
+      description: Attach or paste only data you are permitted to share. A synthetic reproduction is ideal.
+      render: text
+  - type: dropdown
+    id: integrity
+    attributes:
+      label: Was Alignment Integrity mode enabled?
+      options:
+        - Yes
+        - No
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: extras
+    attributes:
+      label: Additional context
+      description: Screenshots, screen recordings, R-scape version, and sanitized output logs can help.

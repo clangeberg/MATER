@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.1 — 2026-09-09
+
+- **Randomized integrity suite:** 10,000 deterministic safe edits plus malformed-input fuzzing, checking width, ungapped sequences, `#=GR` attachment, WUSS, stable validation, and save/reopen invariants.
+- **Undo/redo integrity suite:** randomized exact restoration of sequence-plus-`#=GR` gap movement.
+- **Rfam corpus audit:** an on-demand audit of 100–500 evenly sampled families from the current official SEED archive; the release audit passed 250 of 4,227 families, including `#=GR` and pseudoknot cases.
+- **GUI stress matrix:** quick and full offscreen tests from 100 × 1,000 through 5,000 × 1,000 and 200 × 10,000, covering rendering, linked edits, undo/redo, reopen, and bounded PDF/SVG export.
+- **Deep-alignment consensus scaling:** exact duplicate aligned patterns are represented as equivalent zero-length GSC subtrees, preserving relative R2R/GSC weights while keeping redundant alignments responsive.
+- **Stable tiled PDF export:** one-page PDFKit source documents remain alive until the combined PDF finishes rendering, preventing the large-export warning and stall found by the stress matrix.
+- **R-scape compatibility coverage:** paths with spaces, ordinary and pseudoknotted input, absent/non-executable/incomplete installs, missing R2R output, retained failure diagnostics, and cancellation.
+- **CaCoFold-refine compatibility coverage:** successful, missing, malformed, and failed output with disposable temporary products.
+- **Invalid-Stockholm save protection:** a prominent safety banner and an explicit per-document warning override before malformed output can be saved.
+- **Support and privacy tools:** privacy-safe **Copy Diagnostics**, structured bug/feature issue forms, and a documented no-analytics/local-data privacy policy.
+- **Continuous integration:** Node 24 releases of GitHub's official checkout and artifact actions, randomized properties and quick GUI stress on every push, and monthly/manual full GUI and Rfam audits.
+- **Distribution:** ad-hoc signed and unnotarized, with no paid Apple developer tooling or Zenodo setup.
+
 ## 0.9.0 — 2026-09-08
 
 - Move every matching `#=GR` row through the same full-column permutation as its sequence during shifts, gap opening/closing, suggested edits, paste/reversion, and Wiggle-refine; preserve the user's mixed `.`/`-` gap symbols.

@@ -55,8 +55,10 @@ swiftc \
   "$project_dir/Sources/MATER/StockholmModel.swift" \
   "$project_dir/Sources/MATER/StructureModel.swift" \
   "$project_dir/Sources/MATER/CurationAnalysis.swift" \
+  "$project_dir/Sources/MATER/RScapeRunner.swift" \
   "$project_dir/Sources/MATER/EditorState.swift" \
   "$project_dir/Sources/MATER/StockholmDocument.swift" \
+  "$project_dir/Sources/MATER/Diagnostics.swift" \
   "$project_dir/Sources/MATER/AlignmentShiftController.swift" \
   "$project_dir/Tests/DocumentRegressionMain.swift" \
   -framework AppKit \

@@ -609,6 +609,11 @@ private struct AlignmentExportSnapshot {
         let horizontalPages = max(1, Int(ceil(size.width / pageSize.width)))
         let verticalPages = max(1, Int(ceil(size.height / pageSize.height)))
         let document = PDFDocument()
+        // PDFPage retains a weak relationship to its source PDFDocument in
+        // PDFKit. Keep each one-page tile document alive until the combined
+        // document has rendered, otherwise large tiled exports can warn that
+        // a page has no document and stall during dataRepresentation().
+        var tileDocuments: [PDFDocument] = []
         var pageIndex = 0
         for verticalPage in 0..<verticalPages {
             for horizontalPage in 0..<horizontalPages {
@@ -619,12 +624,15 @@ private struct AlignmentExportSnapshot {
                 let view = AlignmentPDFTileView(snapshot: self, tileOrigin: origin, pageSize: pageSize)
                 let data = view.dataWithPDF(inside: view.bounds)
                 if let tileDocument = PDFDocument(data: data), let page = tileDocument.page(at: 0) {
+                    tileDocuments.append(tileDocument)
                     document.insert(page, at: pageIndex)
                     pageIndex += 1
                 }
             }
         }
-        return document.dataRepresentation() ?? Data()
+        let result = document.dataRepresentation() ?? Data()
+        _ = tileDocuments
+        return result
     }
 
     private func rect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, color: NSColor) -> String {

@@ -8,7 +8,7 @@
 
 ## Install
 
-1. Download `MATER-0.9.0-macOS-universal.zip` from the [v0.9.0 private-alpha release](https://github.com/clangeberg/MATER/releases/tag/v0.9.0).
+1. Download `MATER-0.9.1-macOS-universal.zip` from the [v0.9.1 private-alpha release](https://github.com/clangeberg/MATER/releases/tag/v0.9.1).
 2. Unzip it and drag `MATER.app` into Applications.
 3. On first launch, right-click the app and choose **Open**. If macOS still blocks it, allow MATER under **System Settings → Privacy & Security** and open it again.
 
@@ -38,8 +38,10 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Single-sequence gap opening and closing without changing alignment width
 - Optional pinned reference sequence
 - R2R-compatible, GSC-weighted consensus (`A/C/G/U`, `R/Y`, lowercase `n`, or `-`) in a compact row directly above the analysis plots
+- Exact duplicate-pattern collapsing for the GSC guide tree, preserving relative consensus weights while accelerating redundant deep alignments
 - Strong whole-column highlighting when selecting the calculated consensus or a `#=GC SS_cons*`, `RF`, or `cons` cell
 - Enabled-by-default Alignment Integrity mode that protects ordered ungapped sequence data during editing and verifies it again before saving
+- Prominent save protection for malformed Stockholm documents; invalid output requires an explicit, warned per-document override
 - Explicit sequence-editing unlock for intentional residue corrections, with persistent comparison against the opened file
 - Collapsible Structural Quality Inspector with per-stem support metrics, residue-pair counts, pair-by-pair summaries, and clickable observations
 - Gap-only suggested stem fixes that optimize both complete helix arms plus up to three neighboring unpaired columns, with before/after previews and structural/profile scoring
@@ -56,8 +58,10 @@ MATER supports macOS 13 or newer on Apple-silicon and Intel Macs. The release is
 - Search by sequence name, motif, or alignment column
 - Navigation among noncanonical pairs, high-entropy columns, gap-rich columns, and validation problems
 - Per-file rolling recovery snapshots, 30-day cleanup, user-controlled recovery clearing, changed-cell highlighting, and baseline region/row reversion
+- Privacy-safe **Copy Diagnostics** output with app/OS/alignment/validation/R-scape context but no sequence or annotation contents
 - Full-alignment vector export to PDF or SVG using the current colors and display options, including the R2R consensus row when visible
 - Export titles, legends, numbering intervals, adjustable name width, selected rows/columns, and tiled multi-page PDF
+- Stable tiled-PDF composition that retains PDFKit source pages through final rendering
 - Shift selected residues left/right into adjacent gaps, automatically expanding a single structural base to its complete stem arm
 - Optionally shift both paired stem arms together in opposite directions to keep the helix in register
 - Jump between paired columns
@@ -77,12 +81,26 @@ Run:
 
 The double-clickable universal app is created at `dist/MATER.app`, supports both Apple-silicon and Intel Macs, and is ad-hoc signed for local use.
 
-MATER 0.9.0 is built and tested with Swift 5.10 or newer and the matching macOS SDK supplied by Xcode Command Line Tools. To select a non-active SDK explicitly, set `MATER_SDK_PATH=/path/to/MacOSX.sdk` for the build or test command.
+MATER 0.9.1 is built and tested with Swift 5.10 or newer and the matching macOS SDK supplied by Xcode Command Line Tools. To select a non-active SDK explicitly, set `MATER_SDK_PATH=/path/to/MacOSX.sdk` for the build or test command.
 
 Run the regression suite with:
 
 ```bash
 ./scripts/run-core-tests.sh
+```
+
+Run deterministic randomized edit properties and the quick/full offscreen GUI matrices with:
+
+```bash
+./scripts/run-property-tests.sh
+./scripts/run-gui-stress-tests.sh --quick
+./scripts/run-gui-stress-tests.sh
+```
+
+An opt-in current-Rfam corpus audit downloads the public SEED archive into the ignored `.build` cache and checks 250 evenly sampled families by default:
+
+```bash
+./scripts/audit-rfam-corpus.sh 250
 ```
 
 Audit the included Rfam examples with:
@@ -99,7 +117,7 @@ Run the reproducible large-alignment benchmark with:
 
 Tagged pushes are tested and packaged by the macOS GitHub Actions workflow. Release ZIPs are accompanied by a SHA-256 file.
 
-MATER source code is available under the [BSD 3-Clause License](LICENSE). Citation metadata is provided in [CITATION.cff](CITATION.cff).
+MATER source code is available under the [BSD 3-Clause License](LICENSE). Citation metadata is provided in [CITATION.cff](CITATION.cff), and local-data behavior is documented in the [privacy statement](PRIVACY.md).
 
 ## Core editing controls
 
@@ -123,7 +141,7 @@ MATER source code is available under the [BSD 3-Clause License](LICENSE). Citati
 - Command-F focuses search; enter a sequence name, motif, number, or `col:123`.
 - Select two or more columns and use **Set pair** to annotate the endpoints in the chosen structure layer.
 - Use **Navigate** to jump directly among analysis and structural problems.
-- Use **Changes** to compare against the opened file, revert a region or row, and manage recovery snapshots.
+- Use **Changes** to compare against the opened file, revert a region or row, manage recovery snapshots, or copy a privacy-safe diagnostic report.
 - Use **Export** to save the complete or selected colored alignment as vector PDF or SVG.
 - Use **View & columns** to insert or remove gap columns, show PP rows, toggle the R2R consensus, combined overview or inspector, configure plots, and adjust thresholds.
 - Use **MATER → Settings** to change residue colors, locate R-scape, or clear recovery data, and **Help → MATER User Guide** for the version-matched manual bundled with the app.
@@ -132,4 +150,4 @@ The original file is not modified until you save. Keep versioned copies of impor
 
 ## Feedback
 
-Bug reports and focused feature requests are welcome through [GitHub Issues](https://github.com/clangeberg/MATER/issues). When possible, include a minimal Stockholm example that reproduces the behavior; remove unpublished biological data first.
+Bug reports and focused feature requests are welcome through the structured [GitHub Issues](https://github.com/clangeberg/MATER/issues) forms. Use **Changes → Copy Diagnostics** and, when possible, include a minimal Stockholm example that reproduces the behavior; remove unpublished biological data first.

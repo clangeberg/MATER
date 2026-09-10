@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: MATER User Guide
+    url: https://github.com/clangeberg/MATER/blob/main/docs/MATER-User-Guide.md
+    about: Check installation, editing, calculations, safety behavior, and troubleshooting before filing an issue.

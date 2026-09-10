@@ -45,8 +45,8 @@ private enum MATERApplicationActions {
         )
         NSApplication.shared.orderFrontStandardAboutPanel(options: [
             .applicationName: "MATER",
-            .applicationVersion: "0.9.0",
-            .version: "Build 14",
+            .applicationVersion: "0.9.1",
+            .version: "Build 15",
             .credits: credits
         ])
     }
@@ -56,7 +56,7 @@ private enum MATERApplicationActions {
             NSWorkspace.shared.open(bundled)
             return
         }
-        if let online = URL(string: "https://github.com/clangeberg/MATER/blob/v0.9.0/docs/MATER-User-Guide.md") {
+        if let online = URL(string: "https://github.com/clangeberg/MATER/blob/v0.9.1/docs/MATER-User-Guide.md") {
             NSWorkspace.shared.open(online)
         }
     }

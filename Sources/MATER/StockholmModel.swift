@@ -891,6 +891,41 @@ enum ConsensusAnalyzer {
     /// unpaired residues against the same GSC-weighted sequence evidence used
     /// by the displayed R2R consensus.
     static func gscWeights(for sequences: [[Character]]) -> [Float] {
+        // Exact duplicate aligned strings occupy zero-length branches in the
+        // single-linkage guide tree. Collapse them before the O(n²) distance
+        // matrix/O(n³) clustering step, then divide the group's combined
+        // branch weight evenly among its leaves. This is mathematically
+        // equivalent to retaining their zero-distance subtree and is a major
+        // improvement for deep alignments containing redundant sequences.
+        var uniqueSequences: [[Character]] = []
+        var uniqueIndexBySequence: [[Character]: Int] = [:]
+        var membersByUniqueIndex: [[Int]] = []
+        for (sequenceIndex, sequence) in sequences.enumerated() {
+            if let uniqueIndex = uniqueIndexBySequence[sequence] {
+                membersByUniqueIndex[uniqueIndex].append(sequenceIndex)
+            } else {
+                let uniqueIndex = uniqueSequences.count
+                uniqueIndexBySequence[sequence] = uniqueIndex
+                uniqueSequences.append(sequence)
+                membersByUniqueIndex.append([sequenceIndex])
+            }
+        }
+        guard uniqueSequences.count < sequences.count else {
+            return gscWeightsWithoutDuplicateCollapsing(sequences)
+        }
+        let uniqueWeights = gscWeightsWithoutDuplicateCollapsing(uniqueSequences)
+        let scale = Float(sequences.count) / Float(uniqueSequences.count)
+        var expanded = Array(repeating: Float(0), count: sequences.count)
+        for uniqueIndex in uniqueSequences.indices {
+            let members = membersByUniqueIndex[uniqueIndex]
+            let memberWeight = uniqueWeights[uniqueIndex] * scale / Float(members.count)
+            for sequenceIndex in members { expanded[sequenceIndex] = memberWeight }
+        }
+        return expanded
+    }
+
+    /// Internal reference path retained for equivalence regression tests.
+    static func gscWeightsWithoutDuplicateCollapsing(_ sequences: [[Character]]) -> [Float] {
         let count = sequences.count
         guard count > 1 else { return count == 1 ? [1] : [] }
 

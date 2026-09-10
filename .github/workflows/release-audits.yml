@@ -1,0 +1,24 @@
+name: Extended release audits
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 1 * *"
+
+permissions:
+  contents: read
+
+jobs:
+  rfam-corpus:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - name: Audit 250 current Rfam SEED alignments
+        run: ./scripts/audit-rfam-corpus.sh 250
+
+  full-gui-stress:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run full offscreen GUI and large-alignment matrix
+        run: ./scripts/run-gui-stress-tests.sh

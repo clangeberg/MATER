@@ -37,6 +37,7 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
 
     @Published private(set) var file: StockholmFile
     @Published var sequenceEditingUnlocked = false
+    @Published var invalidSavingUnlocked = false
     @Published private(set) var integrityNotice = ""
     private(set) var analysis: StockholmDocumentAnalysis
     private(set) var revision: UInt64 = 0
@@ -78,6 +79,10 @@ final class StockholmDocument: ReferenceFileDocument, ObservableObject {
         let report = integrityReport
         if !sequenceEditingUnlocked, !report.isIntact {
             throw AlignmentIntegrityError(report: report)
+        }
+        let validationErrors = analysis.validationIssues.filter { $0.severity == .error }
+        if !validationErrors.isEmpty, !invalidSavingUnlocked {
+            throw StockholmValidationSaveError(issues: validationErrors)
         }
         return file.rendered
     }
@@ -267,6 +272,19 @@ struct AlignmentIntegrityError: LocalizedError {
     var recoverySuggestion: String? {
         let details = report.violations.prefix(5).map(\.message).joined(separator: " ")
         return "Revert the sequence changes, or explicitly unlock sequence editing before saving. \(details)"
+    }
+}
+
+struct StockholmValidationSaveError: LocalizedError {
+    let issues: [ValidationIssue]
+
+    var errorDescription: String? {
+        "MATER blocked saving because the alignment has \(issues.count) Stockholm validation error\(issues.count == 1 ? "" : "s")."
+    }
+
+    var recoverySuggestion: String? {
+        let details = issues.prefix(3).map(\.message).joined(separator: " ")
+        return "Fix the validation errors before overwriting the file. If you deliberately need to preserve malformed input, use Allow Invalid Save in MATER's warning banner. \(details)"
     }
 }
 

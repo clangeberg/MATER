@@ -12,15 +12,19 @@ jobs:
   test-build:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Show toolchain
         run: swift --version
       - name: Run regression suite
         run: ./scripts/run-core-tests.sh
+      - name: Run deterministic randomized edit properties
+        run: ./scripts/run-property-tests.sh
+      - name: Run quick offscreen GUI stress matrix
+        run: ./scripts/run-gui-stress-tests.sh --quick
       - name: Build and package universal app
         run: ./scripts/package-release.sh
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: MATER-${{ github.ref_name }}-macOS
           path: |

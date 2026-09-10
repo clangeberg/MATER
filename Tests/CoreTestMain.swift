@@ -6,6 +6,7 @@ struct CoreTestMain {
 
     static func main() async {
         roundTripPreservesStockholmText()
+        parsesDiverseStockholmConventions()
         joinsInterleavedStockholmBlocks()
         rejectsDuplicateNamesWithoutJoiningThem()
         parsesCrossingPseudoknotLayers()
@@ -14,12 +15,14 @@ struct CoreTestMain {
         covariationClassification()
         calculatesColumnEntropy()
         calculatesR2RConsensusAndGapFrequency()
+        preservesGSCConsensusWhenDuplicatePatternsAreCollapsed()
         verifiesSequenceIntegrity()
         calculatesStructuralQuality()
         suggestsSafeStemImprovements()
         optimizesCompleteHelixWindows()
         leavesUnoccupiedStructuralVariantsAlone()
         parsesRScapeOutputsAndHandlesMissingExecutable()
+        await exercisesRScapeCompatibilityFixtures()
         await runsCaCoFoldRefinementAndDiscardsTemporaryArtifacts()
         await runsRScapeIntegrationWhenRequested()
         refinesEntireAlignmentWithoutChangingSequences()
@@ -94,6 +97,35 @@ struct CoreTestMain {
         expect(file.rows.contains { $0.kind.selectsWholeColumn && $0.label == "#=GC RF" }, "RF whole-column selection marker")
         expect(AlignmentRowKind.columnAnnotation(tag: "cons").selectsWholeColumn, "cons whole-column selection marker")
         expect(file.validationIssues.isEmpty, "valid fixture reported issues")
+    }
+
+    private static func parsesDiverseStockholmConventions() {
+        let unix = """
+        # STOCKHOLM 1.0
+        #=GF ID complex-identifiers-and-fragments
+        #=GF CC metadata with spaces and punctuation: [RNA]
+        #=GS URS0000123456/101-108 DE fragment
+        URS0000123456/101-108  -GCAUACG
+        sample|isolate:2        AGCAUAC-
+        #=GR URS0000123456/101-108 PP .9988776
+        #=GC SS_cons            .<....>.
+        #=GC SS_cons_pk         ..A..a..
+        #=GC RF                 .xxxxxx.
+        //
+        """
+        let windows = unix.replacingOccurrences(of: "\n", with: "\r\n")
+        let file = StockholmParser.parse(windows)
+        expect(file.rendered == windows, "CRLF Stockholm did not round-trip exactly")
+        expect(file.sequenceRows.count == 2, "complex identifiers changed sequence-row parsing")
+        expect(file.structureRows.count == 2, "multiple SS_cons layers were not parsed")
+        expect(StructureParser.pairs(in: file).count == 2, "primary/pseudoknot pairs were not both parsed")
+        expect(file.rows.contains { $0.label.contains("URS0000123456/101-108 PP") }, "fragment #=GR owner was not retained")
+        expect(file.validationIssues.filter { $0.severity == .error }.isEmpty, "diverse valid Stockholm fixture reported an error")
+
+        let classicMac = unix.replacingOccurrences(of: "\n", with: "\r")
+        let classicFile = StockholmParser.parse(classicMac)
+        expect(classicFile.sequenceRows.count == 2, "CR-only Stockholm was not parsed")
+        expect(classicFile.validationIssues.filter { $0.severity == .error }.isEmpty, "CR-only valid fixture reported an error")
     }
 
     private static func joinsInterleavedStockholmBlocks() {
@@ -315,6 +347,35 @@ struct CoreTestMain {
         expect(ConsensusAnalyzer.symbol(for: [0.20, 0, 0, 0, 0.80]) == "-", "R2R low-presence symbol")
     }
 
+    private static func preservesGSCConsensusWhenDuplicatePatternsAreCollapsed() {
+        let unique = [Array("ACGU-A"), Array("AGGUUA"), Array("UCGUAA")]
+        let multiplicities = [17, 9, 23]
+        let uniqueWeights = ConsensusAnalyzer.gscWeights(for: unique)
+        var expandedSequences: [[Character]] = []
+        for index in unique.indices {
+            expandedSequences.append(contentsOf: Array(repeating: unique[index], count: multiplicities[index]))
+        }
+        let expandedWeights = ConsensusAnalyzer.gscWeights(for: expandedSequences)
+        let referenceWeights = ConsensusAnalyzer.gscWeightsWithoutDuplicateCollapsing(expandedSequences)
+        var offset = 0
+        var groupWeights: [Float] = []
+        var referenceGroupWeights: [Float] = []
+        for count in multiplicities {
+            groupWeights.append(expandedWeights[offset..<(offset + count)].reduce(0, +))
+            referenceGroupWeights.append(referenceWeights[offset..<(offset + count)].reduce(0, +))
+            offset += count
+        }
+        let uniqueTotal = uniqueWeights.reduce(0, +)
+        let expandedTotal = groupWeights.reduce(0, +)
+        for index in unique.indices {
+            let expected = uniqueWeights[index] / uniqueTotal
+            let observed = groupWeights[index] / expandedTotal
+            expect(abs(expected - observed) < 0.000_01, "duplicate-pattern collapse changed relative GSC branch weight")
+            let reference = referenceGroupWeights[index] / referenceGroupWeights.reduce(0, +)
+            expect(abs(reference - observed) < 0.000_01, "collapsed GSC weight differs from the original zero-distance subtree")
+        }
+    }
+
     private static func verifiesSequenceIntegrity() {
         let baseline = StockholmParser.parse("""
         # STOCKHOLM 1.0
@@ -480,6 +541,166 @@ struct CoreTestMain {
         }
     }
 
+    private static func exercisesRScapeCompatibilityFixtures() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MATER R-scape compatibility \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            let bin = root.appendingPathComponent("installation with spaces/bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+            let executableURL = bin.appendingPathComponent("R-scape")
+            let r2rURL = bin.appendingPathComponent("R2R")
+            let fixture = """
+            #!/bin/sh
+            outdir=""
+            outname=""
+            input=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --outdir) shift; outdir="$1" ;;
+                --outname) shift; outname="$1" ;;
+                *.sto) input="$1" ;;
+              esac
+              shift
+            done
+            test -n "$outdir" || exit 71
+            test -n "$outname" || exit 72
+            test -f "$input" || exit 73
+            cp "$input" "$outdir/$outname.original.sto"
+            printf '* 2 7 20.0 0.001\n' > "$outdir/$outname.cov"
+            printf '# BPAIRS 2\n# BPAIRS expected to covary 1.5\n# BPAIRS observed to covary 1\n' > "$outdir/$outname.power"
+            printf '%%PDF-1.4\n%%%%EOF\n' > "$outdir/$outname.R2R.sto.pdf"
+            printf '<svg xmlns="http://www.w3.org/2000/svg"/>\n' > "$outdir/$outname.R2R.sto.svg"
+            printf '# R-scape 2.6.16\n'
+            exit 0
+            """
+            try makeExecutable(fixture, at: executableURL)
+            try makeExecutable("#!/bin/sh\nexit 0\n", at: r2rURL)
+
+            expect(
+                RScapeExecutableLocator.resolveSelection(root.appendingPathComponent("installation with spaces"))?.path == executableURL.path,
+                "R-scape discovery failed for an installation path containing spaces"
+            )
+            let ordinary = "# STOCKHOLM 1.0\none ACGUACGU\n#=GC SS_cons <<....>>\n//\n"
+            let pseudoknot = "# STOCKHOLM 1.0\none GGAACCUU\n#=GC SS_cons <A..>a..\n//\n"
+            for (name, input) in [("ordinary result", ordinary), ("pseudoknot result", pseudoknot)] {
+                let output = root.appendingPathComponent(name, isDirectory: true)
+                let result = try await RScapeRunner.run(
+                    executableURL: root.appendingPathComponent("installation with spaces"),
+                    stockholmText: input,
+                    outputDirectory: output,
+                    outputName: name,
+                    processHandle: RScapeProcessHandle()
+                )
+                expect(result.summary.significantPairs == 1, "R-scape fixture significance parsing for \(name)")
+                expect(result.summary.version == "2.6.16", "R-scape fixture version parsing for \(name)")
+                expect(
+                    result.inputSnapshotURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } == input,
+                    "R-scape fixture did not preserve the \(name) input snapshot"
+                )
+                expect(FileManager.default.fileExists(atPath: result.r2rPDFURL.path), "R-scape fixture missing retained PDF")
+            }
+
+            let nonExecutable = root.appendingPathComponent("R-scape")
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: nonExecutable)
+            expect(RScapeExecutableLocator.resolveSelection(nonExecutable) == nil, "non-executable R-scape selection was accepted")
+
+            let incomplete = root.appendingPathComponent("incomplete/R-scape")
+            try FileManager.default.createDirectory(at: incomplete.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try makeExecutable("#!/bin/sh\nexit 0\n", at: incomplete)
+            do {
+                _ = try await RScapeRunner.run(
+                    executableURL: incomplete,
+                    stockholmText: ordinary,
+                    outputDirectory: root.appendingPathComponent("incomplete output"),
+                    outputName: "incomplete",
+                    processHandle: RScapeProcessHandle()
+                )
+                expect(false, "incomplete R-scape unexpectedly succeeded")
+            } catch RScapeRunError.missingCovarianceTable {
+                // Expected: an incomplete installation is reported without crashing.
+            } catch {
+                expect(false, "incomplete R-scape returned the wrong error: \(error.localizedDescription)")
+            }
+
+            let missingDrawing = root.appendingPathComponent("missing drawing/R-scape")
+            try FileManager.default.createDirectory(at: missingDrawing.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try makeExecutable("""
+            #!/bin/sh
+            outdir=""; outname=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in --outdir) shift; outdir="$1" ;; --outname) shift; outname="$1" ;; esac
+              shift
+            done
+            printf '* 1 4 10.0 0.01\n' > "$outdir/$outname.cov"
+            exit 0
+            """, at: missingDrawing)
+            do {
+                _ = try await RScapeRunner.run(
+                    executableURL: missingDrawing,
+                    stockholmText: ordinary,
+                    outputDirectory: root.appendingPathComponent("missing drawing output"),
+                    outputName: "missing-drawing",
+                    processHandle: RScapeProcessHandle()
+                )
+                expect(false, "R-scape without R2R output unexpectedly succeeded")
+            } catch RScapeRunError.missingR2RDrawing {
+                // Expected: the pair table may exist even when R2R is incomplete.
+            } catch {
+                expect(false, "missing R2R drawing returned the wrong error: \(error.localizedDescription)")
+            }
+
+            let failed = root.appendingPathComponent("failed/R-scape")
+            try FileManager.default.createDirectory(at: failed.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try makeExecutable("#!/bin/sh\nprintf 'malformed installation detail\\n' >&2\nexit 37\n", at: failed)
+            do {
+                _ = try await RScapeRunner.run(
+                    executableURL: failed,
+                    stockholmText: ordinary,
+                    outputDirectory: root.appendingPathComponent("failed output"),
+                    outputName: "failed",
+                    processHandle: RScapeProcessHandle()
+                )
+                expect(false, "failing R-scape unexpectedly succeeded")
+            } catch RScapeRunError.analysisFailed(let status, let details) {
+                expect(status == 37 && details.contains("malformed installation detail"), "R-scape failure diagnostics were lost")
+            } catch {
+                expect(false, "failing R-scape returned the wrong error: \(error.localizedDescription)")
+            }
+
+            let cancellable = root.appendingPathComponent("cancellable/R-scape")
+            try FileManager.default.createDirectory(at: cancellable.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try makeExecutable("#!/bin/sh\nexec /bin/sleep 30\n", at: cancellable)
+            let handle = RScapeProcessHandle()
+            let task = Task {
+                try await RScapeRunner.run(
+                    executableURL: cancellable,
+                    stockholmText: ordinary,
+                    outputDirectory: root.appendingPathComponent("cancelled output"),
+                    outputName: "cancelled",
+                    processHandle: handle
+                )
+            }
+            try await Task.sleep(nanoseconds: 150_000_000)
+            handle.cancel()
+            do {
+                _ = try await task.value
+                expect(false, "cancelled R-scape fixture unexpectedly succeeded")
+            } catch RScapeRunError.cancelled {
+                // Expected.
+            } catch {
+                expect(false, "cancelled R-scape returned the wrong error: \(error.localizedDescription)")
+            }
+        } catch {
+            expect(false, "could not construct R-scape compatibility fixtures: \(error.localizedDescription)")
+        }
+    }
+
+    private static func makeExecutable(_ source: String, at url: URL) throws {
+        try source.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
     private static func runsRScapeIntegrationWhenRequested() async {
         let environment = ProcessInfo.processInfo.environment
         guard let executablePath = environment["MATER_RSCAPE_EXECUTABLE"],
@@ -570,6 +791,63 @@ struct CoreTestMain {
                     !FileManager.default.fileExists(atPath: temporaryPath),
                     "CaCoFold temporary output directory was retained"
                 )
+            }
+
+            let missingOutput = fixtureDirectory.appendingPathComponent("missing-output/R-scape")
+            try FileManager.default.createDirectory(at: missingOutput.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try makeExecutable("#!/bin/sh\nexit 0\n", at: missingOutput)
+            do {
+                _ = try await RScapeRunner.refineStructureWithCaCoFold(
+                    executableURL: missingOutput,
+                    stockholmText: "# STOCKHOLM 1.0\nseq ACGU\n#=GC SS_cons <..>\n//\n",
+                    processHandle: RScapeProcessHandle()
+                )
+                expect(false, "CaCoFold without an output alignment unexpectedly succeeded")
+            } catch RScapeRunError.missingCaCoFoldAlignment {
+                // Expected.
+            } catch {
+                expect(false, "missing CaCoFold output returned the wrong error: \(error.localizedDescription)")
+            }
+
+            let invalidOutput = fixtureDirectory.appendingPathComponent("invalid-output/R-scape")
+            try FileManager.default.createDirectory(at: invalidOutput.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try makeExecutable("""
+            #!/bin/sh
+            outdir=""; outname=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in --outdir) shift; outdir="$1" ;; --outname) shift; outname="$1" ;; esac
+              shift
+            done
+            printf '# STOCKHOLM 1.0\none ACGU\ntwo ACG\n//\n' > "$outdir/$outname.cacofold.sto"
+            exit 0
+            """, at: invalidOutput)
+            do {
+                _ = try await RScapeRunner.refineStructureWithCaCoFold(
+                    executableURL: invalidOutput,
+                    stockholmText: "# STOCKHOLM 1.0\nseq ACGU\n#=GC SS_cons <..>\n//\n",
+                    processHandle: RScapeProcessHandle()
+                )
+                expect(false, "malformed CaCoFold alignment unexpectedly succeeded")
+            } catch RScapeRunError.invalidCaCoFoldAlignment(let details) {
+                expect(!details.isEmpty, "malformed CaCoFold output lost its validation details")
+            } catch {
+                expect(false, "malformed CaCoFold output returned the wrong error: \(error.localizedDescription)")
+            }
+
+            let failedOutput = fixtureDirectory.appendingPathComponent("failed-output/R-scape")
+            try FileManager.default.createDirectory(at: failedOutput.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try makeExecutable("#!/bin/sh\nprintf 'CaCoFold dependency failure\\n' >&2\nexit 29\n", at: failedOutput)
+            do {
+                _ = try await RScapeRunner.refineStructureWithCaCoFold(
+                    executableURL: failedOutput,
+                    stockholmText: "# STOCKHOLM 1.0\nseq ACGU\n#=GC SS_cons <..>\n//\n",
+                    processHandle: RScapeProcessHandle()
+                )
+                expect(false, "failing CaCoFold fixture unexpectedly succeeded")
+            } catch RScapeRunError.analysisFailed(let status, let details) {
+                expect(status == 29 && details.contains("CaCoFold dependency failure"), "CaCoFold failure diagnostics were lost")
+            } catch {
+                expect(false, "failing CaCoFold fixture returned the wrong error: \(error.localizedDescription)")
             }
         } catch {
             expect(false, "CaCoFold runner fixture failed: \(error.localizedDescription)")

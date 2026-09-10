@@ -14,6 +14,8 @@ struct DocumentRegressionMain {
         precondition(firstPathDocument.recoverySnapshotCount == 1)
         precondition(secondPathDocument.recoverySnapshotCount == 0, "Identical files at different paths shared recovery data.")
 
+        exerciseRandomizedUndoRedo()
+
         let document = StockholmDocument()
         precondition(document.changeSummary.changedCells == 0)
         precondition(!document.sequenceEditingUnlocked, "Alignment Integrity mode should be enabled by default.")
@@ -65,6 +67,32 @@ struct DocumentRegressionMain {
             preconditionFailure("An integrity-repaired document should save while locked: \(error)")
         }
 
+        let invalidDocument = StockholmDocument(previewFile: StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one ACGU
+        two ACG
+        //
+        """))
+        precondition(invalidDocument.analysis.validationIssues.contains { $0.severity == .error })
+        do {
+            _ = try invalidDocument.snapshot(contentType: .stockholmAlignment)
+            preconditionFailure("Saving an invalid Stockholm alignment should require explicit permission.")
+        } catch is StockholmValidationSaveError {
+            // Expected.
+        } catch {
+            preconditionFailure("Unexpected validation-save error: \(error)")
+        }
+        invalidDocument.invalidSavingUnlocked = true
+        do {
+            _ = try invalidDocument.snapshot(contentType: .stockholmAlignment)
+        } catch {
+            preconditionFailure("Explicitly permitted invalid Stockholm content should save: \(error)")
+        }
+        let diagnostics = MATERDiagnostics.report(document: invalidDocument, sourceURL: URL(fileURLWithPath: "/private/example.sto"))
+        precondition(diagnostics.contains("example.sto"))
+        precondition(diagnostics.contains("2 sequences"))
+        precondition(!diagnostics.contains("one ACGU"), "Diagnostics leaked sequence contents.")
+
         let shiftDocument = StockholmDocument()
         shiftDocument.sequenceEditingUnlocked = true
         shiftDocument.mutate("Prepare stem shift", undoManager: nil) { file in
@@ -92,5 +120,61 @@ struct DocumentRegressionMain {
         precondition(shiftDocument.file.records[shiftedRecord].aligned == "---ACGCGU---", "The repeated controller shift output is wrong.")
 
         print("MATER document recovery and comparison regression tests passed.")
+    }
+
+    @MainActor
+    private static func exerciseRandomizedUndoRedo() {
+        let fixtures: [(String, (inout StockholmFile) -> Void)] = [
+            ("""
+            # STOCKHOLM 1.0
+            one .A-C.
+            #=GR one PP .9.8.
+            #=GC SS_cons <...>
+            //
+            """, { _ = $0.shift(row: 0, selection: 1...1, direction: -1) }),
+            ("""
+            # STOCKHOLM 1.0
+            one ACG.U
+            #=GR one PP 987.6
+            #=GC SS_cons .....
+            //
+            """, { _ = $0.openGap(row: 0, at: 1) }),
+            ("""
+            # STOCKHOLM 1.0
+            one A.CGU
+            #=GR one PP 9.876
+            #=GC SS_cons .....
+            //
+            """, { _ = $0.closeGap(row: 0, at: 1) }),
+            ("""
+            # STOCKHOLM 1.0
+            one -A--U-
+            #=GR one PP .9..8.
+            #=GC SS_cons <...>.
+            //
+            """, {
+                let index = $0.sequenceRows[0].recordIndex
+                _ = $0.replaceSequenceGapPlacement(recordIndex: index, with: "A---U-")
+            })
+        ]
+
+        for iteration in 0..<200 {
+            let fixture = fixtures[(iteration &* 73) % fixtures.count]
+            let document = StockholmDocument(previewFile: StockholmParser.parse(fixture.0))
+            let before = document.file
+            let undoManager = UndoManager()
+            undoManager.groupsByEvent = false
+            undoManager.beginUndoGrouping()
+            document.mutate("Randomized undo property", undoManager: undoManager, fixture.1)
+            undoManager.endUndoGrouping()
+            let after = document.file
+            precondition(after != before, "Randomized undo fixture made no change.")
+            precondition(ResidueAnnotationIntegrityAnalyzer.preservesAttachmentsForMovedSequences(from: before, to: after))
+
+            undoManager.undo()
+            precondition(document.file == before, "Undo did not restore exact Stockholm state at iteration \(iteration).")
+            undoManager.redo()
+            precondition(document.file == after, "Redo did not restore exact edited Stockholm state at iteration \(iteration).")
+        }
     }
 }

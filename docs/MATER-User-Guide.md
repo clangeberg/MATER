@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 0.9.0 • macOS 13 or newer**
+**MATER version 0.9.1 • macOS 13 or newer**
 
-Manual revision: 1 September 2026
+Manual revision: 9 September 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.9.0.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 0.9.1.
 
 > **Alpha safety rule:** Work on a duplicate of an important alignment until MATER has been validated on your own files. Keep **Alignment locked** during normal curation.
 
@@ -68,12 +68,12 @@ In this guide:
 
 ### 2.2 Installing an alpha ZIP
 
-1. Unzip `MATER-0.9.0-macOS-universal.zip`.
+1. Unzip `MATER-0.9.1-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 0.9.0 is ad-hoc signed and is not Apple-notarized. No paid Apple Developer Program membership is required to build it, but this private alpha produces more Gatekeeper friction than a Developer ID-signed, notarized release.
+Version 0.9.1 is ad-hoc signed and is not Apple-notarized. No paid Apple Developer Program membership is required to build it, but this private alpha produces more Gatekeeper friction than a Developer ID-signed, notarized release.
 
 ### 2.3 Opening an alignment
 
@@ -459,6 +459,8 @@ A C G U R Y n -
 #### Sequence weighting
 
 MATER derives GSC-style weights from a tree based on pairwise sequence identity. Closely redundant sequences share weight, reducing their ability to dominate the consensus. Weights are recomputed after every alignment revision.
+
+Exact duplicate aligned strings form zero-length subtrees. MATER collapses each such group before guide-tree construction, computes the same combined branch contribution, and divides that weight evenly back among the duplicate members. This preserves their relative GSC influence and makes highly redundant deep alignments substantially faster without changing the consensus thresholds or alphabet.
 
 #### Fragment handling
 
@@ -862,6 +864,16 @@ The alignment width is the most common sequence-row length; ties favor the small
 
 When Alignment Integrity mode is locked, save performs the additional baseline sequence check described in Section 10.
 
+### 19.1 Invalid-file save protection
+
+If validation reports one or more errors, MATER displays a red warning banner above the alignment and blocks saving. This prevents an automatic or accidental overwrite from silently committing malformed Stockholm data. Warnings alone do not block saving.
+
+Correct the reported widths, duplicate identifiers, or structure notation when possible. If preserving malformed input is deliberate, click **Allow Invalid Save…**, read the risk warning, and approve the override for that document. The banner turns orange and offers **Restore Save Protection**. This override does not suppress validation or make the file valid; downstream tools may still reject or misinterpret it. Prefer **Save As** and retain the untouched original.
+
+### 19.2 Copy Diagnostics
+
+Choose **Changes → Copy Diagnostics** or use the button in the validation banner. The clipboard report includes the MATER build, macOS and CPU architecture, document filename, alignment dimensions, structure/pseudoknot counts, validation messages, integrity status, and detected R-scape path. It deliberately excludes all sequence strings and annotation-row contents. Review filenames, validation text, and filesystem paths before sharing them.
+
 ## 20. Keyboard and mouse reference
 
 | Action | Shortcut/gesture |
@@ -987,7 +999,7 @@ Open gap consumes the nearest downstream gap. If none exists, it cannot preserve
 
 ### Why is saving blocked?
 
-Alignment Integrity mode is locked and an ungapped sequence differs from the opened baseline. Use Changes to revert, undo the residue edit, or explicitly unlock sequence editing before saving the intentional change.
+Either Alignment Integrity mode is locked and an ungapped sequence differs from the opened baseline, or the file has a Stockholm validation error. For an integrity difference, use Changes to revert, undo the residue edit, or explicitly unlock sequence editing before saving the intentional change. For a validation error, use the red banner to inspect the problem; correct it when possible. **Allow Invalid Save…** is an explicit last-resort override, not a repair.
 
 ### Why is macOS warning that MATER cannot be verified?
 
@@ -1023,7 +1035,7 @@ The same Finder `PATH` rule applies. In the chooser, select the executable that 
 
 ## 24. Current limitations
 
-Version 0.9.0 intentionally has a bounded scope:
+Version 0.9.1 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
@@ -1055,6 +1067,8 @@ Report bugs in the private GitHub repository or through the agreed alpha channel
 8. A screenshot or short screen recording if visual
 9. A minimal sanitized `.sto` that reproduces the issue
 
+The repository's bug-report form captures these fields. **Changes → Copy Diagnostics** prepares the non-biological environment and validation details without copying sequence or annotation contents. Review its document filename, validation messages, and R-scape path before posting.
+
 Remove unpublished biological data, sample identifiers, and sensitive metadata before sharing. A synthetic two-to-ten-sequence reproduction is usually more useful than a large confidential alignment.
 
 Treat these as highest priority:
@@ -1073,10 +1087,26 @@ From the repository root:
 
 ```bash
 ./scripts/run-core-tests.sh
+./scripts/run-property-tests.sh
+./scripts/run-gui-stress-tests.sh --quick
 ./scripts/build-app.sh
 ```
 
-The test script covers parser round trips, structure and pseudoknot parsing, base-pair rules, pair variation, entropy, R2R consensus, gap frequency, integrity, quality metrics, suggestions, editing operations, search/navigation, PDF/SVG export, recovery, and document comparison.
+The core suite covers parser round trips, structure and pseudoknot parsing, base-pair rules, pair variation, entropy, R2R consensus, gap frequency, integrity, quality metrics, suggestions, R-scape/CaCoFold failure paths, editing operations, search/navigation, PDF/SVG export, recovery, and document comparison. The deterministic property suite runs 10,000 randomized edits by default and fuzzes malformed sources; a failure prints its seed for exact reproduction. The quick GUI suite renders and edits representative large canvases offscreen.
+
+Run the complete 100 × 1,000, 1,000 × 1,000, 5,000 × 1,000, and 200 × 10,000 GUI stress matrix before a release:
+
+```bash
+./scripts/run-gui-stress-tests.sh
+```
+
+Audit 250 evenly sampled families from Rfam's current public SEED archive with:
+
+```bash
+./scripts/audit-rfam-corpus.sh 250
+```
+
+This opt-in command requires network access, caches the archive under ignored `.build/rfam-corpus`, and checks parsing, validation, normalization, analysis, one safe move, `#=GR` attachment, and save/reopen behavior. Pass a number from 100 through 500 to change the sample depth.
 
 The optional synthetic performance benchmark does not modify any files:
 
@@ -1140,7 +1170,7 @@ dist/MATER.app
 
 A concise methods statement for work performed with this alpha is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.9.0. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 0.9.1. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
 If the optional integration was used, also report the independently installed R-scape version and whether **Run R-scape** evaluate-given-structure analysis or **CaCoFold-refine** was used. For statistical analysis, preserve and report the retained command/log and output files. For CaCoFold-refine, preserve the source and refined Stockholm files and report R-scape's version because MATER deliberately discards the intermediate run products. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
 

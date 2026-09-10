@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a focused RNA-alignment curation improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Please describe the biological curation task first; that makes it easier to design a generally useful interaction.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Curation workflow or problem
+      description: What are you trying to accomplish, and where does the current workflow become slow or error-prone?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested behavior
+      description: Describe the smallest interaction or output that would solve the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: formats
+    attributes:
+      label: Relevant Stockholm annotations or external tools
+      description: For example SS_cons, RF, #=GR PP, R-scape, R2R, Infernal, or pseudoknot conventions.
+  - type: textarea
+    id: example
+    attributes:
+      label: Sanitized example
+      description: Do not share unpublished data. A small synthetic example is welcome.
+      render: text

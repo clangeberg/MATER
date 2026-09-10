@@ -50,6 +50,10 @@ struct DocumentEditorView: View {
         VStack(spacing: 0) {
             controls
             Divider()
+            if !validationErrors.isEmpty {
+                validationSafetyBanner
+                Divider()
+            }
             if state.referenceSequenceName != nil {
                 PinnedReferencePanel(document: document, state: state, residuePalette: residuePalette)
                 Divider()
@@ -325,6 +329,7 @@ struct DocumentEditorView: View {
                     Button("Create recovery snapshot", action: createRecoverySnapshot)
                     Button("Restore latest recovery snapshot", action: restoreRecoverySnapshot)
                         .disabled(document.recoverySnapshotCount == 0)
+                    Button("Copy Diagnostics", action: copyDiagnostics)
                     Divider()
                     let summary = document.changeSummary
                     Text("\(summary.changedCells) changed cells in \(summary.changedRows) rows")
@@ -357,6 +362,46 @@ struct DocumentEditorView: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
+    }
+
+    private var validationErrors: [ValidationIssue] {
+        document.analysis.validationIssues.filter { $0.severity == .error }
+    }
+
+    private var validationSafetyBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: document.invalidSavingUnlocked ? "exclamationmark.triangle.fill" : "lock.trianglebadge.exclamationmark.fill")
+                .foregroundStyle(document.invalidSavingUnlocked ? .orange : .red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(document.invalidSavingUnlocked
+                    ? "Invalid-file saving is temporarily allowed for this document"
+                    : "Save protection: \(validationErrors.count) Stockholm validation error\(validationErrors.count == 1 ? "" : "s")")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(document.invalidSavingUnlocked
+                    ? "Saving may preserve or create malformed Stockholm data. Correct the errors, or restore protection when you are done."
+                    : "MATER will not overwrite this alignment until the errors are corrected or you explicitly allow an invalid save.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Button("Copy Diagnostics", action: copyDiagnostics)
+            if document.invalidSavingUnlocked {
+                Button("Restore Save Protection") {
+                    document.invalidSavingUnlocked = false
+                    state.statusMessage = "Invalid-file save protection restored."
+                }
+            } else {
+                Button("Allow Invalid Save…", action: allowInvalidSave)
+                    .tint(.red)
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.red.opacity(0.07))
+        .help(validationErrors.map(\.message).joined(separator: "\n"))
     }
 
     private var legendAndStatus: some View {
@@ -795,6 +840,25 @@ struct DocumentEditorView: View {
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    private func allowInvalidSave() {
+        let alert = NSAlert()
+        alert.messageText = "Allow saving an invalid Stockholm alignment?"
+        alert.informativeText = "The file currently has \(validationErrors.count) validation error\(validationErrors.count == 1 ? "" : "s"). Saving it may make downstream RNA tools reject it or interpret it incorrectly. Prefer correcting the errors or saving a separate copy."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Allow Invalid Save")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        document.invalidSavingUnlocked = true
+        state.statusMessage = "Invalid-file saving allowed for this document. Restore protection from the warning banner when finished."
+    }
+
+    private func copyDiagnostics() {
+        let diagnostics = MATERDiagnostics.report(document: document, sourceURL: sourceURL)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(diagnostics, forType: .string)
+        state.statusMessage = "Copied privacy-safe MATER diagnostics; no sequence or annotation contents were included."
     }
 
     private var selectionInspectorText: String {
