@@ -24,6 +24,6 @@ swiftc -O \
 mkdir -p "$project_dir/docs/images"
 "$binary" \
   "$project_dir/Examples/Rfam/RF01763-Guanidine-III.sto" \
-  "$project_dir/docs/images/mater-hero.png"
+  "$project_dir/docs/images/mater-hero-quality-inspector.png"
 
-echo "$project_dir/docs/images/mater-hero.png"
+echo "$project_dir/docs/images/mater-hero-quality-inspector.png"

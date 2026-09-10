@@ -4,7 +4,7 @@
 
 **MATER — Manual Alignment Tool for Evolutionary RNA** is a structure-aware Stockholm alignment editor for macOS.
 
-![MATER editing an Rfam Guanidine-III riboswitch alignment with a selected stem displayed in the Quality Inspector](docs/images/mater-hero.png?raw=1)
+![MATER editing an Rfam Guanidine-III riboswitch alignment with a selected stem displayed in the Quality Inspector](docs/images/mater-hero-quality-inspector.png)
 
 MATER supports manual RNA alignment refinement by keeping gap movement, sequence conservation, and base-pairing in a single view. It is particularly useful for alignments with pseudoknots, which are difficult to follow in a conventional text editor.
 
