@@ -30,7 +30,7 @@ private enum AlignmentRefinementKind {
 struct DocumentEditorView: View {
     @ObservedObject var document: StockholmDocument
     let sourceURL: URL?
-    @StateObject private var state = EditorState()
+    @StateObject private var state: EditorState
     @EnvironmentObject private var residuePalette: ResiduePaletteSettings
     @State private var searchText = ""
     @State private var pendingExportFormat: AlignmentExportFormat?
@@ -45,6 +45,17 @@ struct DocumentEditorView: View {
     @FocusState private var searchFieldFocused: Bool
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openDocument) private var openDocument
+
+    init(document: StockholmDocument, sourceURL: URL?, initialSelectedColumn: Int? = nil) {
+        self.document = document
+        self.sourceURL = sourceURL
+
+        let state = EditorState()
+        if let initialSelectedColumn {
+            state.select(row: 0, column: initialSelectedColumn)
+        }
+        _state = StateObject(wrappedValue: state)
+    }
 
     var body: some View {
         VStack(spacing: 0) {

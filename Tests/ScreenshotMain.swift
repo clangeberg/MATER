@@ -15,7 +15,12 @@ struct ScreenshotMain {
             let source = try String(contentsOf: inputURL, encoding: .utf8)
             let document = StockholmDocument(previewFile: StockholmParser.parse(source))
             let palette = ResiduePaletteSettings()
-            let root = DocumentEditorView(document: document, sourceURL: inputURL)
+            let selectedColumn = document.analysis.structurePairs.first?.left ?? 0
+            let root = DocumentEditorView(
+                document: document,
+                sourceURL: inputURL,
+                initialSelectedColumn: selectedColumn
+            )
                 .environmentObject(palette)
                 .frame(width: 1440, height: 900)
             let hosting = NSHostingView(rootView: root)
