@@ -1,5 +1,7 @@
 # MATER privacy
 
+This statement applies to MATER 1.0.0.
+
 MATER is a local macOS application. It does not contain analytics, telemetry, advertising, account sign-in, automatic crash submission, or a service that uploads alignments. Opening, editing, analysis, export, and recovery operate on the Mac.
 
 ## Data stored locally
