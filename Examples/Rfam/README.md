@@ -2,7 +2,7 @@
 
 These focused Rfam SEED alignments are included as realistic MATER exercises. They were downloaded from the official Rfam family-alignment API on 30 August 2026. Rfam data are released under CC0; see the [Rfam terms](https://rfam.org/about#terms) and [Rfam API documentation](https://docs.rfam.org/en/latest/api.html#alignments).
 
-All four files are unmodified copies of the complete Rfam SEED alignments. The riboswitches contain 40–43 sequences. The selenocysteine tRNA SEED contains 109 sequences—slightly above the initial sub-100 target, but still compact enough for testing and preferable to a sampled general-tRNA alignment.
+All four files are unmodified copies of the complete Rfam SEED alignments. The riboswitches contain 40–43 sequences. The selenocysteine tRNA SEED contains 109 sequences and is still compact enough for an interactive test.
 
 | File | Rfam family | Depth × width | Pseudoknot | Useful tests |
 |---|---|---:|---|---|
@@ -11,4 +11,4 @@ All four files are unmodified copies of the complete Rfam SEED alignments. The r
 | `RF00521-SAM-alpha.sto` | [RF00521](https://rfam.org/family/RF00521), SAM-alpha riboswitch | 40 × 85 | No | Ordinary nested stem, entropy/gap tracks, consensus comparison |
 | `RF01852-tRNA-Sec.sto` | [RF01852](https://rfam.org/family/RF01852), selenocysteine tRNA | 109 × 119 | Additional `()` WUSS class; no lettered layer | Extended tRNA multi-stem alignment, large-alignment navigation, overview and export |
 
-For a safe first exercise, duplicate a file in Finder and edit the copy. These are examples, not claims that the underlying Rfam alignments need correction.
+For a first exercise, duplicate one of these files in Finder and edit the copy. They are examples, not claims that the underlying Rfam alignments need correction.
