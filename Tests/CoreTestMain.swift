@@ -939,6 +939,38 @@ struct CoreTestMain {
         expect(file.records[file.sequenceRows[0].recordIndex].aligned == "A-C--", "first discontinuous-shift row")
         expect(file.records[file.sequenceRows[1].recordIndex].aligned == "G-U--", "second discontinuous-shift row")
 
+        var leftPushFile = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one .UUUGGGC-
+        #=GC SS_cons .<<<>>>..
+        //
+        """)
+        let leftPushColumns = leftPushFile.expandedColumnsForDirectionalPush(
+            rows: [0],
+            columns: [7],
+            direction: -1
+        )
+        expect(leftPushColumns == Set(1...7), "left push did not expand through the occupied run")
+        if let leftPushColumns {
+            expect(leftPushFile.shift(rows: [0], columns: leftPushColumns, direction: -1), "expanded left push failed")
+        }
+        expect(
+            leftPushFile.records[leftPushFile.sequenceRows[0].recordIndex].aligned == "UUUGGGC.-",
+            "expanded left-push output"
+        )
+
+        let noSharedGapFile = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one -ACG.
+        two -AC.G
+        #=GC SS_cons .....
+        //
+        """)
+        expect(
+            noSharedGapFile.expandedColumnsForDirectionalPush(rows: [0, 1], columns: [1], direction: 1) == nil,
+            "multi-row push should fail when no shared destination gap exists"
+        )
+
         var gapFile = StockholmParser.parse("""
         # STOCKHOLM 1.0
         one ACG.U

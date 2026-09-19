@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 1.1.0 • macOS 13 or newer**
+**MATER version 1.1.1 • macOS 13 or newer**
 
 Manual revision: 10 September 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 1.1.0.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 1.1.1.
 
 > **Safety rule:** Keep a versioned copy of an important alignment and leave **Alignment locked** on during normal curation.
 
@@ -68,12 +68,12 @@ In this guide:
 
 ### 2.2 Installing the release ZIP
 
-1. Unzip `MATER-1.1.0-macOS-universal.zip`.
+1. Unzip `MATER-1.1.1-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 1.1.0 is ad-hoc signed and is not Apple-notarized. This produces more Gatekeeper friction than a Developer ID-signed, notarized release. Only bypass the warning for a copy downloaded from MATER's official GitHub release page.
+Version 1.1.1 is ad-hoc signed and is not Apple-notarized. This produces more Gatekeeper friction than a Developer ID-signed, notarized release. Only bypass the warning for a copy downloaded from MATER's official GitHub release page.
 
 ### 2.3 Opening an alignment
 
@@ -184,7 +184,7 @@ The repository includes focused teaching examples in `Examples/Rfam`.
 
 1. Duplicate an example and open the copy.
 2. Select one or more sequence cells.
-3. Drag the selected cells horizontally, or use **Control-comma** / **Control-period**, to move the selection into an adjacent gap. Option–Left/Right remains an alternate binding.
+3. Drag the selected cells horizontally, or use **Control-comma** / **Control-period**, to move the selection into an adjacent gap. Option–Left/Right is used by the separate **MATER Classic** preset.
 4. Confirm that the footer still says **Integrity verified**.
 5. Use **Command-Z** to undo.
 
@@ -268,12 +268,14 @@ When a gap-only edit changes a sequence's column placement, MATER applies the sa
 
 ### 7.4 Shifting a selected block
 
-Use **Move selection left/right**, drag an existing selection, Control-comma/period, or the retained Option–Left/Right alternate. For a normal selection:
+Use **Move selection left/right**, drag an existing selection, or Control-comma/period. The **MATER Classic** preset uses Option–Left/Right. For a normal selection:
 
 - Every destination outside the selected columns must already be a gap.
 - Every selected sequence row must be able to move.
 - The edit is atomic: if one row cannot move, none of the selected rows move.
 - Alignment width and ungapped sequence strings remain unchanged.
+
+If a continuous ordinary selection is blocked by adjacent occupied cells, MATER extends the move through that contiguous run until it reaches the first gap shared by every selected sequence row. This is useful when an unpaired flanking nucleotide should move with the adjacent helix stack. The complete destination block stays selected for repeated movement. The move is refused rather than truncated if no suitable gap exists before the alignment edge.
 
 ### 7.5 Automatic stem-arm shifting
 
@@ -910,6 +912,8 @@ Choose **Changes → Copy Diagnostics** or use the button in the validation bann
 
 MATER 1.1 defaults to the **Yaale-compatible** preset. Standard macOS Command shortcuts remain alternate bindings. Choose **MATER → Settings → Keyboard** to switch to **MATER Classic**, record a new primary or alternate binding, inspect conflicts, reset one command, or restore the full Yaale-compatible preset. Document shortcuts work when the canvas, toolbar, or inspector has focus; they are suppressed while typing in a text field or shortcut recorder.
 
+The named presets are authoritative. Restoring **Yaale-compatible** removes MATER Classic movement and column bindings; switching to **MATER Classic** restores them. Custom bindings and preset changes take effect in every open document immediately and persist after MATER is relaunched.
+
 | Action | Yaale-compatible primary | Alternate/gesture |
 |---|---|---|
 | Move one cell | Arrow keys | — |
@@ -917,11 +921,11 @@ MATER 1.1 defaults to the **Yaale-compatible** preset. Standard macOS Command sh
 | Fast navigation | Control-arrow | — |
 | First/last column | Home / End | — |
 | Extend to first/last column | Shift-Home / Shift-End | — |
-| Move selected block/fine stem arm left/right | Control-comma / Control-period | Option-Left / Option-Right; horizontal drag from selection |
-| Push to extreme left/right | Control-Shift-comma / Control-Shift-period | Option-Shift-Left / Option-Shift-Right |
-| Insert alignment column | Control-I | Command-Shift-I |
-| Delete selected all-gap column | Control-D | Command-Shift-D |
-| Remove all empty columns | Control-Shift-D | Command-Option-D |
+| Move selected block/fine stem arm left/right | Control-comma / Control-period | Horizontal drag; MATER Classic: Option-Left / Option-Right |
+| Push to extreme left/right | Control-Shift-comma / Control-Shift-period | MATER Classic: Option-Shift-Left / Option-Shift-Right |
+| Insert alignment column | Control-I | MATER Classic: Command-Shift-I |
+| Delete selected all-gap column | Control-D | MATER Classic: Command-Shift-D |
+| Remove all empty columns | Control-Shift-D | MATER Classic: Command-Option-D |
 | Open/close a row-local gap | Control-Option-I / Control-Option-D | Toolbar buttons |
 | Jump to paired column | Control-] | Toolbar button |
 | Clear to gap/dot | Control-Delete | Delete / Backspace |
@@ -1080,7 +1084,7 @@ The same Finder `PATH` rule applies. In the chooser, select the executable that 
 
 ## 24. Current limitations
 
-Version 1.1.0 intentionally has a bounded scope:
+Version 1.1.1 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
@@ -1218,7 +1222,7 @@ dist/MATER.app
 
 A concise methods statement for work performed with this release is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 1.1.0. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 1.1.1. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
 If the optional integration was used, also report the independently installed R-scape version and whether **Run R-scape** evaluate-given-structure analysis or **CaCoFold-refine** was used. For statistical analysis, preserve and report the retained command/log and output files. For CaCoFold-refine, preserve the source and refined Stockholm files and report R-scape's version because MATER deliberately discards the intermediate run products. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
 

@@ -6,7 +6,7 @@ authors:
   - family-names: Langeberg
     given-names: Conner
 abstract: "A native macOS editor for structure-aware manual curation of RNA alignments in Stockholm format."
-version: 1.1.0
+version: 1.1.1
 date-released: 2026-09-19
 repository-code: "https://github.com/clangeberg/MATER"
 url: "https://github.com/clangeberg/MATER"

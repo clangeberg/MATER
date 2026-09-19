@@ -32,13 +32,21 @@ enum AlignmentShiftController {
                 in: document.file
             )
         }
+        let movementColumns = stemPlan == nil
+            ? document.file.expandedColumnsForDirectionalPush(
+                rows: rows,
+                columns: selectedColumns,
+                direction: direction
+            ) ?? selectedColumns
+            : selectedColumns
+        let extendedThroughOccupiedRun = stemPlan == nil && movementColumns.count > selectedColumns.count
 
         var shifted = false
         document.mutate(direction < 0 ? "Move Selection Left" : "Move Selection Right", undoManager: undoManager) { file in
             if let stemPlan {
                 shifted = file.shift(rows: rows, moves: stemPlan.moves)
             } else {
-                shifted = file.shift(rows: rows, columns: selectedColumns, direction: direction)
+                shifted = file.shift(rows: rows, columns: movementColumns, direction: direction)
             }
         }
 
@@ -69,8 +77,13 @@ enum AlignmentShiftController {
                 state.statusMessage = "Shifted complete stem arm \(directionName)."
             }
         } else {
-            state.translateSelectedColumns(by: direction)
-            state.statusMessage = "Shifted selection \(directionName)."
+            if extendedThroughOccupiedRun {
+                state.selectColumns(Set(movementColumns.map { $0 + direction }))
+                state.statusMessage = "Shifted the contiguous occupied block \(directionName) to the next gap."
+            } else {
+                state.translateSelectedColumns(by: direction)
+                state.statusMessage = "Shifted selection \(directionName)."
+            }
         }
         return true
     }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1 — 2026-09-19
+
+- **Directional block pushing:** when an ordinary contiguous selection is blocked by adjacent residues, extend the move through the occupied run to the first gap. This allows an unpaired nucleotide beside a helix to push the complete local stack without preselecting it.
+- **Atomic multi-row behavior:** extend to the first column that is a gap in every selected sequence row, or leave the alignment unchanged when no valid destination gap exists.
+- **Registered annotations:** carry matching `#=GR` characters through the same expanded gap-only permutation.
+- **Selection continuity:** keep the complete moved block selected so repeated keyboard or drag movement continues to act on it.
+- **Preset-correct shortcuts:** make the Yaale-compatible and MATER Classic movement/column bindings distinct, remove canvas-level Classic overrides, route events through the live selected profile, and persist resets through relaunch.
+- **Project presentation:** reorganize the README with a centered project header, release and platform badges, direct navigation, an overview table, and a clearer first-launch notice.
+
 ## 1.1.0 — 2026-09-19
 
 - **Manual editing:** add Jalview-style horizontal drag movement for an existing selection, live valid/blocked feedback, and a single grouped Undo action.

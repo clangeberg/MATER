@@ -120,6 +120,42 @@ struct DocumentRegressionMain {
         )
         precondition(shiftDocument.file.records[shiftedRecord].aligned == "---ACGCGU---", "The repeated controller shift output is wrong.")
 
+        let flankingResidueDocument = StockholmDocument(previewFile: StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        outside -CGGGUUU.
+        #=GR outside PP .1234567.
+        #=GC SS_cons ..<<<>>>.
+        //
+        """))
+        let flankingState = EditorState()
+        flankingState.select(row: 0, column: 1)
+        precondition(
+            AlignmentShiftController.shift(
+                document: flankingResidueDocument,
+                state: flankingState,
+                direction: 1,
+                undoManager: nil
+            ),
+            "An unpaired flanking residue could not push its adjacent occupied stack."
+        )
+        let flankingRecord = flankingResidueDocument.file.sequenceRows[0].recordIndex
+        precondition(
+            flankingResidueDocument.file.records[flankingRecord].aligned == "-.CGGGUUU",
+            "Directional occupied-stack expansion produced the wrong sequence placement."
+        )
+        let flankingAnnotation = flankingResidueDocument.file.records.first {
+            if case .residueAnnotation("outside", "PP") = $0.kind { return true }
+            return false
+        }
+        precondition(
+            flankingAnnotation?.aligned == "..1234567",
+            "Directional occupied-stack expansion did not keep the #=GR annotation registered."
+        )
+        precondition(
+            flankingState.selectedColumnSet == Set(2...8),
+            "The expanded destination block did not remain selected."
+        )
+
         print("MATER document recovery and comparison regression tests passed.")
     }
 

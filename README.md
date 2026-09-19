@@ -1,14 +1,49 @@
-# MATER for macOS
+<p align="center">
+  <img src="Assets/AppIcon-master.png" alt="MATER RNA hairpin icon" width="168">
+</p>
 
-<img src="Assets/AppIcon-master.png" alt="MATER RNA hairpin icon" width="128">
+<h1 align="center">MATER</h1>
 
-**MATER — Manual Alignment Tool for Evolutionary RNA** is a structure-aware Stockholm alignment editor for macOS.
+<p align="center">
+  <strong>Manual Alignment Tool for Evolutionary RNA</strong><br>
+  Structure-aware manual curation of Stockholm RNA alignments on macOS.
+</p>
+
+<p align="center">
+  <a href="https://github.com/clangeberg/MATER/actions/workflows/ci.yml"><img alt="MATER CI" src="https://github.com/clangeberg/MATER/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/clangeberg/MATER/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/clangeberg/MATER?label=release"></a>
+  <img alt="macOS 13 or newer" src="https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white">
+  <a href="LICENSE"><img alt="BSD 3-Clause License" src="https://img.shields.io/badge/License-BSD--3--Clause-6f42c1"></a>
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#basic-workflow">Basic workflow</a> ·
+  <a href="docs/MATER-User-Guide.md">User guide</a> ·
+  <a href="Examples/Rfam/README.md">Examples</a> ·
+  <a href="https://github.com/clangeberg/MATER/releases/latest">Releases</a>
+</p>
+
+> [!IMPORTANT]
+> Release builds are ad-hoc signed but not Apple-notarized. macOS may require
+> approval under **System Settings → Privacy & Security** on first launch.
+
+## Overview
+
+MATER keeps gap movement, sequence conservation, and base-pairing in one native alignment view. It is designed for focused manual refinement, including pseudoknotted alignments that are difficult to follow in a conventional text editor.
+
+MATER complements Infernal, R2R, and R-scape rather than replacing them. Alignment curation remains interactive and transparent; external statistical and structure-analysis tools remain separate.
 
 ![MATER editing an Rfam Guanidine-III riboswitch alignment with a selected stem displayed in the Quality Inspector](docs/images/mater-hero-quality-inspector.png)
 
-MATER supports manual RNA alignment refinement by keeping gap movement, sequence conservation, and base-pairing in a single view. It is particularly useful for alignments with pseudoknots, which are difficult to follow in a conventional text editor.
+### At a glance
 
-MATER complements Infernal, R2R, and R-scape rather than replacing them. Its scope is focused manual editing.
+| Input | Curation and analysis | Output |
+|---|---|---|
+| Stockholm alignments | Gap-safe manual movement and structure-aware stem handling | Edited Stockholm alignments |
+| `SS_cons`, `RF`, and `#=GR` annotations | Pair-safe WUSS editing and registered residue annotations | Validated sequence and annotation placement |
+| Canonical and pseudoknotted helices | Stem, element, residue, and pair-variation coloring | Colored PDF or SVG alignment figures |
+| Optional local R-scape installation | Evaluate-given-structure and CaCoFold refinement | Pairwise tables, R2R drawings, or refined alignments |
 
 ## Core capabilities
 
@@ -17,6 +52,7 @@ MATER complements Infernal, R2R, and R-scape rather than replacing them. Its sco
 - Switching between structural colors and user-defined A/C/G/U colors
 - Highlighting paired columns and moving one or both helix arms together
 - Dragging selected cells to move them, with one-step undo and blocked-move feedback
+- Pushing an unpaired flanking residue together with its contiguous occupied block to the next gap
 - Using Yaale-compatible default shortcuts or assigning primary and alternate shortcuts in Settings
 - Editing `SS_cons` safely: pair endpoints are created and removed together across WUSS/pseudoknot classes
 - Protecting ungapped sequence order and keeping `#=GR` annotations registered with their sequences
@@ -29,7 +65,7 @@ The [MATER User Guide](docs/MATER-User-Guide.md) covers every control, keyboard 
 
 ## Install
 
-1. Download `MATER-1.1.0-macOS-universal.zip` from the [MATER 1.1.0 release](https://github.com/clangeberg/MATER/releases/tag/v1.1.0).
+1. Download `MATER-1.1.1-macOS-universal.zip` from the [MATER 1.1.1 release](https://github.com/clangeberg/MATER/releases/tag/v1.1.1).
 2. Unzip it and drag `MATER.app` into Applications.
 3. Open a Stockholm file from MATER or double-click it in Finder.
 
@@ -45,7 +81,7 @@ This command should only be used for a copy downloaded from the repository's off
 
 ## Basic workflow
 
-Open a Stockholm alignment and leave **Alignment locked** on. Select bases or whole columns, then drag the selection horizontally or use Control-comma/Control-period to move it into neighboring gaps. Option–Left/Right remains available as an alternate. Double-click a paired base to select both partners; triple-click it to select the full stem. A single selected paired base moves its complete fine stem arm. **Link stem arms** is opt-in and moves the opposite arm in register.
+Open a Stockholm alignment and leave **Alignment locked** on. Select bases or whole columns, then drag the selection horizontally or use Control-comma/Control-period to move it into neighboring gaps. The separate **MATER Classic** preset uses Option–Left/Right instead. If an ordinary selected base is blocked by a contiguous occupied run, MATER carries that run with it until the first gap instead of requiring the entire block to be selected first. Double-click a paired base to select both partners; triple-click it to select the full stem. A single selected paired base moves its complete fine stem arm. **Link stem arms** is opt-in and moves the opposite arm in register.
 
 **Insert column** is available directly in the editing toolbar. It inserts an empty alignment column across all aligned rows; **Open row gap** only rearranges gaps within the selected sequence. The bundled guide opens inside MATER with Command-Question Mark, and all editor shortcuts can be reviewed or reassigned under **MATER → Settings → Keyboard**.
 

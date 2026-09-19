@@ -153,13 +153,16 @@ struct ShortcutBinding: Codable, Equatable {
 final class KeyboardShortcutSettings: ObservableObject {
     private static let presetKey = "keyboardShortcutPreset"
     private static let bindingsKey = "keyboardShortcutBindings.v1"
+    private let defaults: UserDefaults
 
     @Published private(set) var preset: ShortcutPreset
     @Published private(set) var bindings: [EditorShortcutAction: ShortcutBinding]
 
     init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         let savedPreset = defaults.string(forKey: Self.presetKey).flatMap(ShortcutPreset.init(rawValue:)) ?? .yaale
-        if let data = defaults.data(forKey: Self.bindingsKey),
+        if savedPreset == .custom,
+           let data = defaults.data(forKey: Self.bindingsKey),
            let decoded = try? JSONDecoder().decode([String: ShortcutBinding].self, from: data) {
             self.preset = savedPreset
             self.bindings = Dictionary(uniqueKeysWithValues: decoded.compactMap { key, value in
@@ -212,7 +215,7 @@ final class KeyboardShortcutSettings: ObservableObject {
         }
     }
 
-    private func persist(defaults: UserDefaults = .standard) {
+    private func persist() {
         defaults.set(preset.rawValue, forKey: Self.presetKey)
         let encoded = Dictionary(uniqueKeysWithValues: bindings.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(encoded) { defaults.set(data, forKey: Self.bindingsKey) }
@@ -242,13 +245,13 @@ final class KeyboardShortcutSettings: ObservableObject {
             ]
         }
         return [
-            .moveLeft: b(.init(",", control), .init("left", option)),
-            .moveRight: b(.init(".", control), .init("right", option)),
-            .pushLeft: b(.init(",", controlShift), .init("left", optionShift)),
-            .pushRight: b(.init(".", controlShift), .init("right", optionShift)),
-            .insertColumn: b(.init("i", control), .init("i", [.command, .shift])),
-            .deleteColumn: b(.init("d", control), .init("d", [.command, .shift])),
-            .removeAllGapColumns: b(.init("d", controlShift), .init("d", [.command, .option])),
+            .moveLeft: b(.init(",", control)),
+            .moveRight: b(.init(".", control)),
+            .pushLeft: b(.init(",", controlShift)),
+            .pushRight: b(.init(".", controlShift)),
+            .insertColumn: b(.init("i", control)),
+            .deleteColumn: b(.init("d", control)),
+            .removeAllGapColumns: b(.init("d", controlShift)),
             .openRowGap: b(.init("i", [.control, .option])),
             .closeRowGap: b(.init("d", [.control, .option])),
             .jumpPair: b(.init("]", control)), .clearCells: b(.init("delete", control), .init("delete", [])),
@@ -291,7 +294,6 @@ struct ShortcutMonitor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.shortcuts = shortcuts
-        context.coordinator.bindingSnapshot = shortcuts.bindings
         context.coordinator.handler = handler
         context.coordinator.hostView = nsView
     }
@@ -301,14 +303,12 @@ struct ShortcutMonitor: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         var shortcuts: KeyboardShortcutSettings
-        var bindingSnapshot: [EditorShortcutAction: ShortcutBinding]
         var handler: (EditorShortcutAction) -> Void
         weak var hostView: NSView?
         private var monitor: Any?
 
         init(shortcuts: KeyboardShortcutSettings, handler: @escaping (EditorShortcutAction) -> Void) {
             self.shortcuts = shortcuts
-            self.bindingSnapshot = shortcuts.bindings
             self.handler = handler
         }
 
@@ -317,10 +317,7 @@ struct ShortcutMonitor: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, event.window === self.hostView?.window else { return event }
                 if event.window?.firstResponder is NSTextView { return event }
-                guard let action = EditorShortcutAction.allCases.first(where: { action in
-                    let value = self.bindingSnapshot[action]
-                    return value?.primary?.matches(event) == true || value?.alternate?.matches(event) == true
-                }) else { return event }
+                guard let action = self.shortcuts.action(for: event) else { return event }
                 self.handler(action)
                 return nil
             }

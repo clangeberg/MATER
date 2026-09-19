@@ -274,6 +274,48 @@ struct StockholmFile: Equatable, Sendable {
         shift(rows: [row], columns: Set(selection), direction: direction)
     }
 
+    /// Extends a continuous ordinary selection through occupied cells in the
+    /// requested direction until every selected sequence row reaches a gap.
+    /// This lets an unpaired flanking residue push the adjacent residue stack
+    /// without requiring the user to select the entire block first.
+    func expandedColumnsForDirectionalPush(
+        rows selectedRows: Set<Int>,
+        columns selectedColumns: Set<Int>,
+        direction: Int
+    ) -> Set<Int>? {
+        guard direction == -1 || direction == 1,
+              !selectedRows.isEmpty,
+              let firstColumn = selectedColumns.min(),
+              let lastColumn = selectedColumns.max(),
+              selectedColumns.count == lastColumn - firstColumn + 1 else { return nil }
+
+        let alignmentRows = rows
+        let modelRows = selectedRows.sorted()
+        guard modelRows.allSatisfy({
+            alignmentRows.indices.contains($0) && alignmentRows[$0].kind.isSequence
+        }) else { return nil }
+
+        let charactersByRow: [[Character]] = modelRows.map {
+            Array(records[alignmentRows[$0].recordIndex].aligned)
+        }
+        guard charactersByRow.allSatisfy({ characters in
+            selectedColumns.allSatisfy(characters.indices.contains)
+                && selectedColumns.contains { !AlignmentSymbol.isSequenceGap(characters[$0]) }
+        }) else { return nil }
+
+        var expanded = selectedColumns
+        var edge = direction < 0 ? firstColumn : lastColumn
+        while true {
+            let next = edge + direction
+            guard charactersByRow.allSatisfy({ $0.indices.contains(next) }) else { return nil }
+            if charactersByRow.allSatisfy({ Self.isGap($0[next]) }) {
+                return expanded
+            }
+            expanded.insert(next)
+            edge = next
+        }
+    }
+
     /// Moves a continuous or discontinuous set of selected cells together.
     /// Every destination must be either selected or a gap, and every requested
     /// row must be able to move so rectangular edits remain atomic.

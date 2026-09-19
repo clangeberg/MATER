@@ -905,51 +905,21 @@ final class AlignmentCanvasView: NSView {
         }
         let command = event.modifierFlags.contains(.command)
         let control = event.modifierFlags.contains(.control)
-        let shift = event.modifierFlags.contains(.shift)
-        if control, event.charactersIgnoringModifiers?.lowercased() == "g" {
-            if shift { closeGapAtCursor() } else { openGapAtCursor() }
-            updateStatus()
-            needsDisplay = true
-            return
-        }
-        if command, let key = event.charactersIgnoringModifiers?.lowercased() {
-            if key == "c" { copySelection(); return }
-            if key == "v" { pasteSelection(); return }
-            if key == "a" {
-                if !state.selectingConsensus {
-                    let sequenceModelRows = document.analysis.rows.indices.filter { document.analysis.rows[$0].kind.isSequence }
-                    if let firstRow = sequenceModelRows.first, let lastRow = sequenceModelRows.last {
-                        state.anchorRow = firstRow
-                        state.selectedRow = lastRow
-                    }
-                    state.highlightWholeColumn = false
-                }
-                state.anchorColumn = 0
-                state.selectedColumn = max(0, document.file.alignmentLength - 1)
-                state.specialColumns = []
-                needsDisplay = true
-                return
-            }
-        }
         let option = event.modifierFlags.contains(.option)
+        let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
         case 123:
-            if option {
-                shiftSelection(direction: -1)
-                needsDisplay = true
-                return
-            }
+            guard !command, !control, !option else { super.keyDown(with: event); return }
             move(rowDelta: 0, columnDelta: -1, extending: shift)
         case 124:
-            if option {
-                shiftSelection(direction: 1)
-                needsDisplay = true
-                return
-            }
+            guard !command, !control, !option else { super.keyDown(with: event); return }
             move(rowDelta: 0, columnDelta: 1, extending: shift)
-        case 125: move(rowDelta: 1, columnDelta: 0, extending: shift)
-        case 126: move(rowDelta: -1, columnDelta: 0, extending: shift)
-        case 51, 117: replaceSelectionWithGap()
+        case 125:
+            guard !command, !control, !option else { super.keyDown(with: event); return }
+            move(rowDelta: 1, columnDelta: 0, extending: shift)
+        case 126:
+            guard !command, !control, !option else { super.keyDown(with: event); return }
+            move(rowDelta: -1, columnDelta: 0, extending: shift)
         case 115:
             state.select(
                 row: state.selectedRow,
