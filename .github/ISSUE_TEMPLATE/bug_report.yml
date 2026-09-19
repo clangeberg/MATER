@@ -12,7 +12,7 @@ body:
     attributes:
       label: MATER version and build
       description: Use About MATER, or paste the first two lines from Changes → Copy Diagnostics.
-      placeholder: 1.0.0 (build 16)
+      placeholder: 1.1.0 (build 17)
     validations:
       required: true
   - type: input

@@ -45,6 +45,10 @@ struct PinnedReferencePanel: View {
         .onChange(of: document.revision) { _ in rebuild() }
         .onChange(of: state.referenceSequenceName) { _ in rebuild() }
         .onChange(of: state.colorMode) { _ in rebuild() }
+        .onChange(of: state.nonDominantCurrentColumnOnly) { _ in rebuild() }
+        .onChange(of: state.selectedColumn) { _ in
+            if state.colorMode == .nonDominant && state.nonDominantCurrentColumnOnly { rebuild() }
+        }
         .onChange(of: residuePalette.adenine) { _ in rebuild() }
         .onChange(of: residuePalette.cytosine) { _ in rebuild() }
         .onChange(of: residuePalette.guanine) { _ in rebuild() }
@@ -75,6 +79,7 @@ struct PinnedReferencePanel: View {
         let covariance = state.colorMode == .covariation
             ? CovariationAnalyzer.classifications(in: document.file, pairs: pairs)
             : [:]
+        let consensus = Array(ConsensusAnalyzer.consensus(in: document.file))
 
         func makeRow(title: String, characters: [Character], modelRow: Int?, recordIndex: Int?) -> PinnedRow {
             var backgrounds = Array<NSColor?>(repeating: nil, count: characters.count)
@@ -98,6 +103,14 @@ struct PinnedReferencePanel: View {
                         backgrounds[column] = AlignmentPalette.covariation[classification]
                         if classification == .compensatory || classification == .noncanonical {
                             lightForegroundColumns.insert(column)
+                        }
+                    }
+                case .nonDominant:
+                    if (!state.nonDominantCurrentColumnOnly || column == state.selectedColumn), consensus.indices.contains(column) {
+                        let residue = Character(String(characters[column]).uppercased().replacingOccurrences(of: "T", with: "U"))
+                        let dominant = Character(String(consensus[column]).uppercased())
+                        if "ACGU".contains(residue), "ACGU".contains(dominant), residue != dominant {
+                            backgrounds[column] = NSColor.systemOrange.withAlphaComponent(0.72)
                         }
                     }
                 case .none:

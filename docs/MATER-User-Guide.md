@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 1.0.0 • macOS 13 or newer**
+**MATER version 1.1.0 • macOS 13 or newer**
 
 Manual revision: 10 September 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 1.0.0.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 1.1.0.
 
 > **Safety rule:** Keep a versioned copy of an important alignment and leave **Alignment locked** on during normal curation.
 
@@ -68,12 +68,12 @@ In this guide:
 
 ### 2.2 Installing the release ZIP
 
-1. Unzip `MATER-1.0.0-macOS-universal.zip`.
+1. Unzip `MATER-1.1.0-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 1.0.0 is ad-hoc signed and is not Apple-notarized. This produces more Gatekeeper friction than a Developer ID-signed, notarized release. Only bypass the warning for a copy downloaded from MATER's official GitHub release page.
+Version 1.1.0 is ad-hoc signed and is not Apple-notarized. This produces more Gatekeeper friction than a Developer ID-signed, notarized release. Only bypass the warning for a copy downloaded from MATER's official GitHub release page.
 
 ### 2.3 Opening an alignment
 
@@ -157,7 +157,7 @@ The editor window has six functional regions.
 
 Hover over a control to see its short help description. The footer reports the current row, column, paired partner, entropy, gap frequency, dimensions, validation state, and most recent action.
 
-The macOS **MATER** menu supplies the standard About panel and a real **Settings** window. Settings contains persistent residue colors, the remembered R-scape executable location, and recovery-data controls. **Help → MATER User Guide** opens the version-matched manual bundled inside the app, so the reference remains available offline.
+The macOS **MATER** menu supplies the standard About panel and a real **Settings** window. Settings contains persistent residue colors, the remembered R-scape executable location, recovery-data controls, and a complete keyboard-shortcut editor. **Help → MATER User Guide**, Command-Question Mark, or the toolbar **Guide** button opens the version-matched manual inside MATER. No external Markdown application or file permission is required.
 
 ## 5. Ten-minute tutorial
 
@@ -184,7 +184,7 @@ The repository includes focused teaching examples in `Examples/Rfam`.
 
 1. Duplicate an example and open the copy.
 2. Select one or more sequence cells.
-3. Use **Option–Left Arrow** or **Option–Right Arrow** to move the selection into an adjacent gap.
+3. Drag the selected cells horizontally, or use **Control-comma** / **Control-period**, to move the selection into an adjacent gap. Option–Left/Right remains an alternate binding.
 4. Confirm that the footer still says **Integrity verified**.
 5. Use **Command-Z** to undo.
 
@@ -202,7 +202,8 @@ Typing a different nucleotide while the alignment is locked is intentionally blo
 ### 6.1 Mouse selection
 
 - **Click:** select one cell.
-- **Drag:** select a rectangular region.
+- **Drag from an unselected cell:** select a rectangular region.
+- **Drag horizontally from inside an existing sequence selection:** move that selection through available gaps. A hand cursor indicates a valid live move; a blocked cursor and footer message explain failure. The complete drag is one Undo action.
 - **Shift-click/Shift-drag:** extend from the existing anchor.
 - **Double-click a paired column:** select that base and all recognized partners at the column.
 - **Triple-click a paired column:** select every column in its stem.
@@ -220,6 +221,8 @@ When one base in a recognized pair is selected, its paired partner is shown with
 - Home/End moves to the first/last column.
 - Shift-Home/Shift-End extends to the first/last column.
 - Command-A selects all sequence rows and all columns. On the calculated consensus, it selects all consensus columns.
+- Control-arrow moves ten rows or columns at a time in the Yaale-compatible preset.
+- Control-G / Control-Shift-G opens go-to-row / go-to-column dialogs in that preset.
 
 Navigation follows the currently displayed order. If sequences are filtered or sorted, hidden rows are skipped.
 
@@ -244,6 +247,8 @@ Edits register with the standard macOS undo manager. Use **Command-Z** to undo a
 - Typing into a `#=GC` or `#=GR` row replaces the selected annotation cells without unlocking sequences.
 - Backspace/Delete changes selected sequence cells to `-` and annotation cells to `.`.
 - While locked, deleting an existing sequence residue is blocked; clearing cells that are already gaps is harmless.
+- In an `SS_cons*` row, clearing or replacing either pair endpoint clears its partner in the same Undoable edit. MATER never commits a deliberately half-removed pair.
+- With two columns selected in one `SS_cons*` row, typing any recognized WUSS bracket writes a complete opener/closer pair. With one column selected, typing a bracket starts partner selection without changing the file; click the partner column or press Escape to cancel.
 
 When multiple rows are selected, direct sequence typing is applied only to sequence rows. Annotation rows are not mixed into a multi-sequence residue replacement.
 
@@ -257,11 +262,13 @@ When multiple rows are selected, direct sequence typing is applied only to seque
 
 Paste is still subject to Alignment Integrity mode. A paste that changes an ungapped sequence is rejected while locked.
 
+Pasting into an `SS_cons*` row is accepted only when the resulting WUSS notation is balanced. Primary brackets, bracket pseudoknot classes, and letter-pair classes are checked together.
+
 When a gap-only edit changes a sequence's column placement, MATER applies the same complete column permutation to every matching `#=GR sequence tag` row. Thus PP, per-sequence SS, and other residue annotations remain attached to residue ordinal rather than being left at their former alignment columns. MATER also verifies this association before committing a residue move. Because Stockholm requires unique sequence identifiers, a duplicate name is a validation error and MATER refuses to guess which duplicate owns a `#=GR` row.
 
 ### 7.4 Shifting a selected block
 
-Use **Shift left/right** or **Option–Left/Right Arrow**. For a normal selection:
+Use **Move selection left/right**, drag an existing selection, Control-comma/period, or the retained Option–Left/Right alternate. For a normal selection:
 
 - Every destination outside the selected columns must already be a gap.
 - Every selected sequence row must be able to move.
@@ -272,13 +279,15 @@ Use **Shift left/right** or **Option–Left/Right Arrow**. For a normal selectio
 
 If the selection is a single paired cell or exactly one complete stem arm, a shift automatically expands to the full arm. This prevents a stem from moving one base at a time.
 
-With **Link stem arms** enabled, the paired arm moves one column in the opposite direction in the same atomic edit. For example, shifting the left arm right shifts the right arm left. Both sides require compatible gaps.
+The expansion is based on the fine **Stem** component, not the larger **Element** coloring unit. This lets the terminal base of an arm push the entire continuous stack without selecting it first.
 
-After a successful stem shift, the destination arm stays selected so repeated Option-arrow presses continue moving the same stem.
+**Link stem arms is off by default.** When enabled, the paired arm moves one column in the opposite direction in the same atomic edit. For example, shifting the left arm right shifts the right arm left. Both sides require compatible gaps.
+
+After a successful stem shift, the destination arm stays selected so repeated movement shortcuts continue moving the same stem.
 
 ### 7.6 Opening a gap
 
-**Control-G** or **Open gap** inserts `-` before the cursor while consuming the nearest downstream gap in the same sequence. Width and ungapped sequence remain unchanged.
+**Open row gap** inserts `-` before the cursor while consuming the nearest downstream gap in the same sequence. Its default shortcut is Control-Option-I. Width and ungapped sequence remain unchanged. This operation does not insert an alignment-wide column.
 
 Opening fails if:
 
@@ -288,19 +297,38 @@ Opening fails if:
 
 ### 7.7 Closing a gap
 
-**Control-Shift-G** or **Close gap** removes the gap at the cursor, pulls the following residue block left, and moves a gap to the far edge of that block.
+**Close row gap** or Control-Option-D removes the gap at the cursor, pulls the following residue block left, and moves a gap to the far edge of that block.
 
 Closing fails unless the selected sequence cell is a gap and moving it changes the alignment.
 
 ### 7.8 Alignment-wide gap columns
 
-The **View & columns** menu contains:
+The main toolbar includes **Insert column**; the same command and related operations are also in **View & columns**:
 
 - **Insert empty gap column:** inserts `-` in every sequence row and `.` in every aligned annotation row before the selected column.
 - **Delete selected all-gap column:** deletes one column only if every sequence contains a recognized gap there.
 - **Remove all empty columns:** deletes every all-gap sequence column at once.
 
+In the Yaale-compatible preset, Control-I inserts a column, Control-D deletes the selected all-gap column, and Control-Shift-D removes every all-gap column.
+
 Column annotations are changed in lockstep. If deleting a column removes only one endpoint of a structural pair, MATER clears the surviving endpoint to avoid an orphaned WUSS symbol.
+
+### 7.9 Alignment tools
+
+The **Alignment tools** menu collects local equivalents of useful commands from established RNA alignment-editor workflows:
+
+- **Push selection fully left/right** repeats the normal safe move to the last valid gap position and records one Undo action.
+- **Left-/Right-justify selected residues** packs residues within the selected window while preserving residue order, gap count, alignment width, and attached `#=GR` registration.
+- **Transpose with left/right gap** swaps one residue and one adjacent gap; residue/residue swaps are refused.
+- **Write calculated consensus** adds or replaces `#=GC cons` with the displayed GSC/R2R sequence consensus.
+- **Fold selected region as hairpin** writes nested pairs from the outside of the selected interval inward in the chosen pairing layer.
+- **Permute alignment around cursor** rotates every aligned row so the cursor column becomes column 1. A preview confirmation is required, and an edit that would split a WUSS pair across the new boundary is refused.
+- **Detect inconsistent or identical sequences** reports exact duplicate aligned strings and current Stockholm validation errors without changing the file.
+- **Alignment statistics** reports dimensions, ungapped residues, defined pairs, mean gap frequency, mean entropy, and validation counts.
+- **Delete sequences matching selected-column criteria** previews sequences with a gap or ambiguity in at least one selected column. Deletion requires Alignment Integrity mode to be explicitly unlocked, removes attached `#=GR` rows, retains at least one sequence, and is Undoable.
+- **Bookmark current column / Next column bookmark** provides session-local named-position behavior without writing private metadata into the Stockholm file.
+
+The sequence display can also be sorted by a parsed terminal hit coordinate or by descending GSC sequence weight. These are view sorts: saving does not silently reorder the file. Network login, remote sequence extension, hit-coordinate correction, and hit-through-motif operations are intentionally not imported.
 
 ## 8. Secondary structure and pseudoknots
 
@@ -406,7 +434,11 @@ The classification uses observed counts, not GSC weights, a phylogenetic model, 
 
 A, C, G, and U/T receive user-defined colors. Open **Base colors** to customize them. Colors persist in macOS user preferences and are reused in later sessions and exports. Ambiguity symbols and gaps remain uncolored.
 
-### 9.5 None
+### 9.5 Non-dominant
+
+Canonical residues that differ from the calculated GSC/R2R consensus nucleotide are orange; the dominant residue remains uncolored. **View & columns → Non-dominant coloring: current column only** limits this comparison to the selected column. Purine/pyrimidine/`n` consensus symbols, gaps, and ambiguity inputs are not forced into a dominant A/C/G/U comparison.
+
+### 9.6 None
 
 Disables biological cell coloring while retaining selection, change, threshold, and validation indicators.
 
@@ -876,27 +908,40 @@ Choose **Changes → Copy Diagnostics** or use the button in the validation bann
 
 ## 20. Keyboard and mouse reference
 
-| Action | Shortcut/gesture |
-|---|---|
-| Move one cell | Arrow keys |
-| Extend rectangular selection | Shift-arrow |
-| First/last column | Home / End |
-| Extend to first/last column | Shift-Home / Shift-End |
-| Shift selected block/stem | Option-Left / Option-Right |
-| Open a gap | Control-G |
-| Close a gap | Control-Shift-G |
-| Clear to gap/dot | Delete or Backspace |
-| Copy/paste | Command-C / Command-V |
-| Select all sequence cells | Command-A |
-| Focus search | Command-F |
-| Undo/redo | Command-Z / Shift-Command-Z |
-| Single cell | Click |
-| Rectangle | Drag |
-| Extend from anchor | Shift-click or Shift-drag |
-| Select pair | Double-click paired cell |
-| Select complete stem | Triple-click paired cell |
-| Highlight full annotation column | Click/drag `SS_cons*`, `RF`, `cons`, or calculated consensus |
-| Navigate overview | Click/drag bottom overview |
+MATER 1.1 defaults to the **Yaale-compatible** preset. Standard macOS Command shortcuts remain alternate bindings. Choose **MATER → Settings → Keyboard** to switch to **MATER Classic**, record a new primary or alternate binding, inspect conflicts, reset one command, or restore the full Yaale-compatible preset. Document shortcuts work when the canvas, toolbar, or inspector has focus; they are suppressed while typing in a text field or shortcut recorder.
+
+| Action | Yaale-compatible primary | Alternate/gesture |
+|---|---|---|
+| Move one cell | Arrow keys | — |
+| Extend rectangular selection | Shift-arrow | — |
+| Fast navigation | Control-arrow | — |
+| First/last column | Home / End | — |
+| Extend to first/last column | Shift-Home / Shift-End | — |
+| Move selected block/fine stem arm left/right | Control-comma / Control-period | Option-Left / Option-Right; horizontal drag from selection |
+| Push to extreme left/right | Control-Shift-comma / Control-Shift-period | Option-Shift-Left / Option-Shift-Right |
+| Insert alignment column | Control-I | Command-Shift-I |
+| Delete selected all-gap column | Control-D | Command-Shift-D |
+| Remove all empty columns | Control-Shift-D | Command-Option-D |
+| Open/close a row-local gap | Control-Option-I / Control-Option-D | Toolbar buttons |
+| Jump to paired column | Control-] | Toolbar button |
+| Clear to gap/dot | Control-Delete | Delete / Backspace |
+| Find forward/backward | Control-F / Control-R | Command-F / Command-Shift-F |
+| Go to row/column | Control-G / Control-Shift-G | — |
+| Left-/right-justify residues | Control-Shift-[ / Control-Shift-] | Alignment tools menu |
+| Transpose residue with adjacent gap | Control-T | Alignment tools menu |
+| Stem / Pair variation / Residue colors | Control-B / Control-Shift-B / Control-N | Color control |
+| Increase/decrease text | Control-= / Control-- | Command-= / Command-- |
+| Copy/paste | Command-C / Command-V | Control-C / Control-V |
+| Select all sequence cells | Command-A | Control-A |
+| Undo/redo | Command-Z / Shift-Command-Z | Control-Z / Control-Y |
+| Single cell | Click | — |
+| Rectangle selection | Drag from unselected cell | — |
+| Move existing selection | Horizontal drag from inside selection | one grouped Undo action |
+| Extend from anchor | Shift-click or Shift-drag | — |
+| Select pair | Double-click paired cell | — |
+| Select complete stem | Triple-click paired cell | — |
+| Highlight full annotation column | Click/drag `SS_cons*`, `RF`, `cons`, or calculated consensus | — |
+| Navigate overview | Click/drag bottom overview | — |
 
 ## 21. Recommended workflows
 
@@ -908,7 +953,7 @@ Choose **Changes → Copy Diagnostics** or use the button in the validation bann
 4. Inspect canonical and noncanonical rates; interpret gaps separately.
 5. Filter to pair violations or gaps depending on the biological question.
 6. Select an outlier sequence and compare Stem, Element, Pair variation, and Residue modes.
-7. Move its stem arm with Option-arrow, Open gap, or Close gap.
+7. Move its stem arm by dragging, using Control-comma/period, or using the row-gap controls.
 8. If appropriate, preview **Suggest fixes**.
 9. Recheck neighboring columns, entropy, gap frequency, and subtype context.
 10. Save under a versioned filename and reopen it once before adopting it.
@@ -1035,7 +1080,7 @@ The same Finder `PATH` rule applies. In the chooser, select the executable that 
 
 ## 24. Current limitations
 
-Version 1.0.0 intentionally has a bounded scope:
+Version 1.1.0 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
@@ -1044,10 +1089,13 @@ Version 1.0.0 intentionally has a bounded scope:
 - No built-in structure prediction or thermodynamic folding; CaCoFold-refine is available only through a separately installed R-scape
 - Statistical covariation analysis requires a separate compatible R-scape/R2R installation; MATER does not bundle, update, or reimplement it
 - No covariance-model building/searching
-- No automatic sequence addition, removal, renaming, or phylogenetic tree editor
+- No automatic sequence addition, renaming, or phylogenetic tree editor; criterion-based sequence deletion is an explicit previewed tool that requires the integrity lock to be opened
+- No web login, remote sequence extension, hit-coordinate correction, or hit-through-motif workflow
 - Suggested and automatic edits use bounded helix-plus-three-column gap rearrangements and iterative local moves rather than a global multiple-sequence realignment algorithm
 - GUI pair creation provides four pseudoknot layers beyond primary, although more existing WUSS letter classes are parsed
 - Major elements are inferred from continuous pair-containment chains and WUSS classes; arbitrary named biological-domain boundaries are not encoded by dot bracket and cannot be assigned explicitly in this release
+- Hit-coordinate and GSC ordering are display-only; MATER does not silently rewrite sequence order on save
+- Column bookmarks are session-local and are not serialized into Stockholm metadata
 - Compact structural-problem heatmap is intentionally editor-only and is not included in alignment PDF/SVG export
 - No built-in automatic updater or crash-reporting service
 
@@ -1170,7 +1218,7 @@ dist/MATER.app
 
 A concise methods statement for work performed with this release is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 1.0.0. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 1.1.0. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
 If the optional integration was used, also report the independently installed R-scape version and whether **Run R-scape** evaluate-given-structure analysis or **CaCoFold-refine** was used. For statistical analysis, preserve and report the retained command/log and output files. For CaCoFold-refine, preserve the source and refined Stockholm files and report R-scape's version because MATER deliberately discards the intermediate run products. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
 

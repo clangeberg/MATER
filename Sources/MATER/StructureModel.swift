@@ -59,6 +59,16 @@ enum StructureParser {
     }()
     private static let closeToOpen = Dictionary(uniqueKeysWithValues: openToClose.map { ($0.value, $0.key) })
 
+    static func bracketPair(for character: Character) -> (open: Character, close: Character)? {
+        if let close = openToClose[character] { return (character, close) }
+        if let open = closeToOpen[character] { return (open, character) }
+        return nil
+    }
+
+    static func isPairingCharacter(_ character: Character) -> Bool {
+        bracketPair(for: character) != nil
+    }
+
     static func pairs(in file: StockholmFile) -> [BasePair] {
         var result: [BasePair] = []
         var nextStem = 0

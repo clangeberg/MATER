@@ -32,6 +32,7 @@ struct DocumentEditorView: View {
     let sourceURL: URL?
     @StateObject private var state: EditorState
     @EnvironmentObject private var residuePalette: ResiduePaletteSettings
+    @EnvironmentObject private var keyboardShortcuts: KeyboardShortcutSettings
     @State private var searchText = ""
     @State private var pendingExportFormat: AlignmentExportFormat?
     @State private var exportConfiguration = AlignmentExportConfiguration()
@@ -98,6 +99,7 @@ struct DocumentEditorView: View {
             minHeight: 650
         )
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(ShortcutMonitor(shortcuts: keyboardShortcuts, handler: handleShortcut))
         .onAppear {
             document.configureRecoverySourceURL(sourceURL)
         }
@@ -139,8 +141,8 @@ struct DocumentEditorView: View {
                     ForEach(AlignmentColorMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 445)
-                .help("Switch among fine stems, continuous high-level helix elements, descriptive pair variation, nucleotide identity, and uncolored views.")
+                .frame(width: 540)
+                .help("Switch among fine stems, continuous high-level helix elements, descriptive pair variation, nucleotide identity, non-dominant residues, and uncolored views.")
 
                 Menu {
                     ColorPicker("Adenine (A)", selection: residuePalette.binding(for: "A"), supportsOpacity: false)
@@ -222,25 +224,31 @@ struct DocumentEditorView: View {
                         Text("Text size")
                         Slider(value: $state.fontSize, in: 11...23, step: 1)
                     }
+                    Picker("Fixed-width font", selection: $state.fontName) {
+                        ForEach(["System Monospaced", "Menlo", "Monaco", "Courier"], id: \.self) { Text($0) }
+                    }
+                    Toggle("Non-dominant coloring: current column only", isOn: $state.nonDominantCurrentColumnOnly)
                 } label: {
                     Label("View & columns", systemImage: "slider.horizontal.3")
                 }
             }
 
             HStack(spacing: 10) {
-                Button(action: { shift(-1) }) { Label("Shift left", systemImage: "arrow.left") }
-                    .help("Shift the selected block left into an adjacent gap (Option–Left Arrow).")
-                Button(action: { shift(1) }) { Label("Shift right", systemImage: "arrow.right") }
-                    .help("Shift the selected block right into an adjacent gap (Option–Right Arrow).")
+                Button(action: { shift(-1) }) { Label("Move selection left", systemImage: "arrow.left") }
+                    .help("Move the selected block, or the complete fine stem arm under a single selected base, left into a gap.")
+                Button(action: { shift(1) }) { Label("Move selection right", systemImage: "arrow.right") }
+                    .help("Move the selected block, or the complete fine stem arm under a single selected base, right into a gap.")
                 Toggle(isOn: $state.linkPairedStemShifts) {
                     Label("Link stem arms", systemImage: "link")
                 }
                 .toggleStyle(.button)
                 .help("When shifting one stem arm, move its paired arm one column in the opposite direction to keep the helix in register.")
-                Button(action: openGap) { Label("Open gap", systemImage: "arrow.right.to.line") }
-                    .help("Open a gap before the cursor while consuming the next gap (Control–G).")
-                Button(action: closeGap) { Label("Close gap", systemImage: "arrow.left.to.line") }
-                    .help("Close the selected gap and pull the following block left (Control–Shift–G).")
+                Button(action: openGap) { Label("Open row gap", systemImage: "arrow.right.to.line") }
+                    .help("Open a gap in only the selected sequence while consuming its next downstream gap.")
+                Button(action: closeGap) { Label("Close row gap", systemImage: "arrow.left.to.line") }
+                    .help("Close a gap in only the selected sequence and pull the following residue block left.")
+                Button(action: insertGapColumn) { Label("Insert column", systemImage: "rectangle.split.1x2") }
+                    .help("Insert an empty alignment column across every sequence and annotation row.")
                 Button(action: jumpToPair) { Label("Jump pair", systemImage: "arrow.left.and.right") }
                     .help("Jump to the nucleotide paired with the selected column.")
                 Button(action: selectStem) { Label("Select stem", systemImage: "point.3.connected.trianglepath.dotted") }
@@ -262,6 +270,9 @@ struct DocumentEditorView: View {
                     .help("Pair the first and last selected columns in the chosen structure layer.")
                 Button("Unpair", action: clearPair)
                     .help("Remove structural pairs touching the selected columns.")
+            }
+
+            HStack(spacing: 10) {
                 Button(action: suggestAlignmentEdits) {
                     Label("Suggest fixes", systemImage: "wand.and.stars")
                 }
@@ -315,6 +326,10 @@ struct DocumentEditorView: View {
                 }
                 .disabled(isCaCoFoldRefining || document.analysis.structurePairs.isEmpty)
                 .help("Evaluate the current given SS_cons structure with an installed R-scape `-s` test and show the R2R result in a closable panel.")
+                Spacer()
+                Text("Refinement creates a new alignment; the open file is unchanged.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 10) {
@@ -330,6 +345,30 @@ struct DocumentEditorView: View {
                     Button("Next validation problem", action: { navigateToProblem(.validation) })
                 } label: {
                     Label("Navigate", systemImage: "scope")
+                }
+
+                Menu {
+                    Button("Push selection fully left", action: { pushToEdge(-1) })
+                    Button("Push selection fully right", action: { pushToEdge(1) })
+                    Divider()
+                    Button("Left-justify selected residues", action: { justifySelection(towardRight: false) })
+                    Button("Right-justify selected residues", action: { justifySelection(towardRight: true) })
+                    Button("Transpose with left gap", action: { transposeSelection(direction: -1) })
+                    Button("Transpose with right gap", action: { transposeSelection(direction: 1) })
+                    Divider()
+                    Button("Write calculated consensus to #=GC cons", action: writeConsensus)
+                    Button("Fold selected region as hairpin", action: foldHairpin)
+                    Button("Permute alignment around cursor…", action: confirmPermute)
+                    Divider()
+                    Button("Detect inconsistent or identical sequences", action: showAlignmentAudit)
+                    Button("Alignment statistics", action: showAlignmentStatistics)
+                    Button("Delete sequences matching selected-column criteria…", action: deleteMatchingSequences)
+                    Divider()
+                    Button(state.columnBookmarks.contains(state.selectedColumn) ? "Remove column bookmark" : "Bookmark current column", action: toggleColumnBookmark)
+                    Button("Next column bookmark", action: nextColumnBookmark)
+                        .disabled(state.columnBookmarks.isEmpty)
+                } label: {
+                    Label("Alignment tools", systemImage: "wrench.and.screwdriver")
                 }
 
                 Menu {
@@ -356,6 +395,10 @@ struct DocumentEditorView: View {
                     Label("Inspector", systemImage: "sidebar.trailing")
                 }
 
+                Button { MATERApplicationActions.openUserGuide() } label: {
+                    Label("Guide", systemImage: "questionmark.circle")
+                }
+
                 Spacer()
 
                 TextField("Name, motif, or col:123", text: $searchText)
@@ -364,11 +407,12 @@ struct DocumentEditorView: View {
                     .focused($searchFieldFocused)
                     .onSubmit(findNext)
 
-                Text("Shift–arrows select rectangle • Option–←/→ shifts • ⌃G opens gap")
+                Text("Drag a selection to move • ⌃, / ⌃. move • shortcuts in Settings")
                     .foregroundStyle(.secondary)
                     .font(.caption)
                 }
         }
+        .fixedSize(horizontal: false, vertical: true)
         .buttonStyle(.bordered)
         .controlSize(.small)
         .padding(.horizontal, 12)
@@ -435,6 +479,9 @@ struct DocumentEditorView: View {
                 LegendSwatch(color: Color(nsColor: residuePalette.cytosine), label: "C")
                 LegendSwatch(color: Color(nsColor: residuePalette.guanine), label: "G")
                 LegendSwatch(color: Color(nsColor: residuePalette.uracil), label: "U/T")
+            case .nonDominant:
+                LegendSwatch(color: .orange.opacity(0.72), label: "differs from consensus")
+                Text("Dominant residues remain uncolored.").foregroundStyle(.secondary)
             case .none:
                 Text("Coloring disabled").foregroundStyle(.secondary)
             }
@@ -915,6 +962,160 @@ struct DocumentEditorView: View {
         state.statusMessage = "Jumped to column \(destination + 1) in \(pair.structureTag)."
     }
 
+    private func handleShortcut(_ action: EditorShortcutAction) {
+        switch action {
+        case .moveLeft: shift(-1)
+        case .moveRight: shift(1)
+        case .pushLeft: pushToEdge(-1)
+        case .pushRight: pushToEdge(1)
+        case .insertColumn: insertGapColumn()
+        case .deleteColumn: deleteGapColumn()
+        case .removeAllGapColumns: removeAllGapColumns()
+        case .openRowGap: openGap()
+        case .closeRowGap: closeGap()
+        case .jumpPair: jumpToPair()
+        case .clearCells: clearSelectedCells()
+        case .fastLeft: moveSelection(rowDelta: 0, columnDelta: -10)
+        case .fastRight: moveSelection(rowDelta: 0, columnDelta: 10)
+        case .fastUp: moveSelection(rowDelta: -10, columnDelta: 0)
+        case .fastDown: moveSelection(rowDelta: 10, columnDelta: 0)
+        case .findForward:
+            if searchText.isEmpty { searchFieldFocused = true } else { findNext() }
+        case .findReverse:
+            if searchText.isEmpty { searchFieldFocused = true } else { findPrevious() }
+        case .gotoRow: promptForLocation(isRow: true)
+        case .gotoColumn: promptForLocation(isRow: false)
+        case .justifyLeft: justifySelection(towardRight: false)
+        case .justifyRight: justifySelection(towardRight: true)
+        case .transpose: transposeSelection(direction: 1)
+        case .structureColors: state.colorMode = .stem
+        case .pairVariationColors: state.colorMode = .covariation
+        case .residueColors: state.colorMode = .residue
+        case .fontIncrease: state.fontSize = min(23, state.fontSize + 1)
+        case .fontDecrease: state.fontSize = max(11, state.fontSize - 1)
+        case .copy: copySelectedCells()
+        case .paste: pasteSelectedCells()
+        case .selectAll: selectAllAlignment()
+        case .undo: undoManager?.undo()
+        case .redo: undoManager?.redo()
+        case .alignmentStatistics: showAlignmentStatistics()
+        case .detectProblems: showAlignmentAudit()
+        case .permuteColumns: confirmPermute()
+        case .foldHairpin: foldHairpin()
+        case .writeConsensus: writeConsensus()
+        }
+    }
+
+    private func moveSelection(rowDelta: Int, columnDelta: Int) {
+        let row = max(0, min(state.selectedRow + rowDelta, max(0, document.analysis.rows.count - 1)))
+        let column = max(0, min(state.selectedColumn + columnDelta, max(0, document.file.alignmentLength - 1)))
+        select(row: row, column: column)
+        state.statusMessage = "Row \(row + 1), column \(column + 1)."
+    }
+
+    private func pushToEdge(_ direction: Int) {
+        if AlignmentShiftController.shiftToEdge(document: document, state: state, direction: direction, undoManager: undoManager) == 0 {
+            NSSound.beep()
+        }
+    }
+
+    private func justifySelection(towardRight: Bool) {
+        let rows = Set(state.selectedRows.filter {
+            document.analysis.rows.indices.contains($0) && document.analysis.rows[$0].kind.isSequence
+        })
+        var changed = false
+        document.mutate(towardRight ? "Right-justify Residues" : "Left-justify Residues", undoManager: undoManager) { file in
+            changed = file.justify(rows: rows, columns: state.selectedColumnBounds, towardRight: towardRight)
+        }
+        state.statusMessage = changed
+            ? "\(towardRight ? "Right" : "Left")-justified residues in the selected window."
+            : "Nothing moved; select sequence rows and a window containing both residues and gaps."
+        if !changed { NSSound.beep() }
+    }
+
+    private func transposeSelection(direction: Int) {
+        var changed = false
+        document.mutate("Transpose Residue and Gap", undoManager: undoManager) { file in
+            changed = file.transposeGap(row: state.selectedRow, column: state.selectedColumn, direction: direction)
+        }
+        if changed {
+            state.select(row: state.selectedRow, column: state.selectedColumn + direction)
+            state.statusMessage = "Transposed the residue with its neighboring gap."
+        } else {
+            state.statusMessage = "Transpose requires one residue and one adjacent gap."
+            NSSound.beep()
+        }
+    }
+
+    private func clearSelectedCells() {
+        guard !state.selectingConsensus else { NSSound.beep(); return }
+        let rows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
+        let columns = state.selectedColumnSet
+        let deletesResidue = rows.contains { row in
+            document.analysis.rows[row].kind.isSequence && columns.contains { column in
+                document.file.character(row: row, column: column).map { !AlignmentSymbol.isSequenceGap($0) } ?? false
+            }
+        }
+        guard !deletesResidue || document.sequenceEditingUnlocked else {
+            state.statusMessage = "Alignment Integrity mode blocked residue deletion. Move residues with gaps, or unlock sequence editing."
+            NSSound.beep()
+            return
+        }
+        document.mutate("Clear Selected Cells", undoManager: undoManager) { file in
+            for row in rows {
+                let kind = document.analysis.rows[row].kind
+                if kind.isStructure { file.clearPairs(touching: columns, recordIndex: document.analysis.rows[row].recordIndex) }
+                let fill: Character = kind.isSequence ? "-" : "."
+                for column in columns { file.replaceCharacter(row: row, column: column, with: fill) }
+            }
+        }
+        state.statusMessage = "Cleared the selected cells."
+    }
+
+    private func selectAllAlignment() {
+        let sequenceRows = document.analysis.rows.indices.filter { document.analysis.rows[$0].kind.isSequence }
+        guard let first = sequenceRows.first, let last = sequenceRows.last else { return }
+        state.anchorRow = first
+        state.selectedRow = last
+        state.anchorColumn = 0
+        state.selectedColumn = max(0, document.file.alignmentLength - 1)
+        state.specialColumns = []
+        state.statusMessage = "Selected the complete sequence alignment."
+    }
+
+    private func copySelectedCells() {
+        let columns = state.orderedSelectedColumns
+        let rows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
+        let text = rows.map { row -> String in
+            let characters = Array(document.file.records[document.analysis.rows[row].recordIndex].aligned)
+            return String(columns.compactMap { characters.indices.contains($0) ? characters[$0] : nil })
+        }.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        state.statusMessage = "Copied \(rows.count) row(s) × \(columns.count) column(s)."
+    }
+
+    private func pasteSelectedCells() {
+        guard let source = NSPasteboard.general.string(forType: .string) else { NSSound.beep(); return }
+        let lines = source.components(separatedBy: .newlines).map { $0.filter { !$0.isWhitespace } }.filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return }
+        let rows = Array(state.selectedRows.filter { document.analysis.rows.indices.contains($0) })
+        var candidate = document.file
+        for (offset, line) in lines.enumerated() {
+            let row = lines.count == 1 ? state.selectedRow : (rows.indices.contains(offset) ? rows[offset] : -1)
+            guard document.analysis.rows.indices.contains(row) else { continue }
+            candidate.replaceCharacters(row: row, startingAt: state.selectedColumnBounds.lowerBound, with: line)
+        }
+        if rows.contains(where: { document.analysis.rows[$0].kind.isStructure }),
+           StructureParser.validationIssues(in: candidate).contains(where: { $0.severity == .error }) {
+            state.statusMessage = "Paste blocked: structure text must contain complete, balanced WUSS pairs."
+            NSSound.beep()
+            return
+        }
+        document.mutate("Paste", undoManager: undoManager) { $0 = candidate }
+        state.statusMessage = "Pasted alignment cells."
+    }
+
     private func selectStem() {
         guard let pair = document.analysis.structurePairs.first(where: { $0.left == state.selectedColumn || $0.right == state.selectedColumn }) else {
             state.statusMessage = "The selected column is not part of a defined stem."
@@ -1018,6 +1219,211 @@ struct DocumentEditorView: View {
         }
         select(row: match.row, column: match.column)
         state.statusMessage = "Found \(match.message)."
+    }
+
+    private func findPrevious() {
+        guard let match = AlignmentSearch.findBackward(
+            searchText,
+            in: document.file,
+            beforeRow: state.selectedRow,
+            beforeColumn: state.selectedColumn
+        ) else {
+            state.statusMessage = "No previous match for “\(searchText)”."
+            NSSound.beep()
+            return
+        }
+        select(row: match.row, column: match.column)
+        state.statusMessage = "Found \(match.message)."
+    }
+
+    private func promptForLocation(isRow: Bool) {
+        let maximum = isRow ? document.analysis.rows.count : document.file.alignmentLength
+        let alert = NSAlert()
+        alert.messageText = isRow ? "Go to alignment row" : "Go to alignment column"
+        alert.informativeText = "Enter a 1-based number from 1 to \(max(1, maximum))."
+        alert.addButton(withTitle: "Go")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: String((isRow ? state.selectedRow : state.selectedColumn) + 1))
+        field.frame = NSRect(x: 0, y: 0, width: 220, height: 24)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn,
+              let value = Int(field.stringValue), value >= 1, value <= maximum else { return }
+        select(
+            row: isRow ? value - 1 : state.selectedRow,
+            column: isRow ? state.selectedColumn : value - 1
+        )
+    }
+
+    private func writeConsensus() {
+        let replacement = ConsensusAnalyzer.consensus(in: document.file)
+        if let existing = document.file.records.first(where: {
+            if case .columnAnnotation(let tag) = $0.kind { return tag.caseInsensitiveCompare("cons") == .orderedSame }
+            return false
+        }), existing.aligned != replacement {
+            let alert = NSAlert()
+            alert.messageText = "Replace the existing #=GC cons row?"
+            alert.informativeText = "MATER will replace it with the calculated GSC/R2R consensus. Undo remains available."
+            alert.addButton(withTitle: "Replace Consensus")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        document.mutate("Write R2R Consensus", undoManager: undoManager) { $0.writeConsensusAnnotation() }
+        state.statusMessage = "Wrote the calculated GSC/R2R consensus to #=GC cons."
+    }
+
+    private func foldHairpin() {
+        let columns = state.selectedColumnBounds
+        let replacedPairCount = document.analysis.structurePairs.filter {
+            $0.structureTag == state.pairingLayer.tag && (columns.contains($0.left) || columns.contains($0.right))
+        }.count
+        if replacedPairCount > 0 {
+            let alert = NSAlert()
+            alert.messageText = "Replace \(replacedPairCount) existing pair\(replacedPairCount == 1 ? "" : "s") in this layer?"
+            alert.informativeText = "The selected interval will become a nested hairpin in \(state.pairingLayer.tag). Other structure layers are unchanged. Undo remains available."
+            alert.addButton(withTitle: "Fold Hairpin")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        var count = 0
+        document.mutate("Fold Selection as Hairpin", undoManager: undoManager) { file in
+            count = file.foldHairpin(columns: columns, layer: state.pairingLayer)
+        }
+        state.statusMessage = count > 0
+            ? "Annotated a \(count)-pair hairpin in \(state.pairingLayer.tag)."
+            : "Select at least four columns to fold a hairpin."
+        if count == 0 { NSSound.beep() }
+    }
+
+    private func confirmPermute() {
+        guard state.selectedColumn > 0 else {
+            state.statusMessage = "Choose a column after column 1 as the new alignment start."
+            NSSound.beep()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Permute alignment around column \(state.selectedColumn + 1)?"
+        alert.informativeText = "Every sequence and annotation row will rotate together. The edit is rejected if a structure pair would cross the new boundary. Undo remains available."
+        alert.addButton(withTitle: "Permute")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let column = state.selectedColumn
+        var changed = false
+        document.mutate("Permute Alignment", undoManager: undoManager) { file in
+            changed = file.permuteColumns(around: column)
+        }
+        if changed {
+            state.select(row: state.selectedRow, column: 0)
+            state.statusMessage = "Permuted the alignment; former column \(column + 1) is now column 1."
+        } else {
+            state.statusMessage = "Permutation blocked because it would split a structure pair across the alignment boundary."
+            NSSound.beep()
+        }
+    }
+
+    private func showAlignmentStatistics() {
+        let file = document.file
+        let sequenceCount = file.sequenceRows.count
+        let length = file.alignmentLength
+        let gaps = GapAnalyzer.columnGapFrequencies(in: file)
+        let entropy = EntropyAnalyzer.columnEntropies(in: file)
+        let meanGap = gaps.isEmpty ? 0 : gaps.reduce(0, +) / Double(gaps.count)
+        let meanEntropy = entropy.isEmpty ? 0 : entropy.reduce(0, +) / Double(entropy.count)
+        let residues = file.sequenceRows.reduce(0) { partial, row in
+            partial + file.records[row.recordIndex].aligned.filter { !AlignmentSymbol.isSequenceGap($0) }.count
+        }
+        let alert = NSAlert()
+        alert.messageText = "Alignment statistics"
+        alert.informativeText = """
+        Sequences: \(sequenceCount)
+        Alignment columns: \(length)
+        Ungapped residues: \(residues)
+        Defined base pairs: \(document.analysis.structurePairs.count)
+        Mean gap frequency: \(String(format: "%.1f%%", meanGap * 100))
+        Mean sequence entropy: \(String(format: "%.3f bits", meanEntropy))
+        Validation issues: \(document.analysis.validationIssues.count)
+        """
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showAlignmentAudit() {
+        let file = document.file
+        let grouped = Dictionary(grouping: file.sequenceRows) { file.records[$0.recordIndex].aligned.uppercased() }
+        let duplicateGroups = grouped.values.filter { $0.count > 1 }
+        let duplicateNames = duplicateGroups.map { group in group.map(\.label).joined(separator: ", ") }
+        let errors = file.validationIssues.filter { $0.severity == .error }.map(\.message)
+        let body: String
+        if duplicateNames.isEmpty && errors.isEmpty {
+            body = "No identical aligned sequences or Stockholm consistency errors were found."
+        } else {
+            let duplicates = duplicateNames.isEmpty ? "No identical aligned sequences." : "Identical aligned sequences:\n• " + duplicateNames.joined(separator: "\n• ")
+            let inconsistencies = errors.isEmpty ? "No consistency errors." : "Consistency errors:\n• " + errors.joined(separator: "\n• ")
+            body = duplicates + "\n\n" + inconsistencies
+        }
+        let alert = NSAlert()
+        alert.messageText = "Alignment integrity report"
+        alert.informativeText = body
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func deleteMatchingSequences() {
+        guard document.sequenceEditingUnlocked else {
+            state.statusMessage = "Sequence deletion requires explicitly unlocking Alignment Integrity mode."
+            NSSound.beep()
+            return
+        }
+        let columns = state.selectedColumnSet
+        let rowsByRecord = Dictionary(uniqueKeysWithValues: document.analysis.rows.enumerated().map { ($0.element.recordIndex, $0.offset) })
+        let matches = Set(document.file.sequenceRows.compactMap { row -> Int? in
+            let characters = Array(document.file.records[row.recordIndex].aligned)
+            let matched = columns.contains { column in
+                guard characters.indices.contains(column) else { return true }
+                let character = Character(String(characters[column]).uppercased())
+                return AlignmentSymbol.isSequenceGap(character) || !"ACGUT".contains(character)
+            }
+            return matched ? rowsByRecord[row.recordIndex] : nil
+        })
+        guard !matches.isEmpty, matches.count < document.file.sequenceRows.count else {
+            state.statusMessage = matches.isEmpty
+                ? "No sequence has a gap or ambiguity in the selected columns."
+                : "Deletion blocked because it would remove every sequence."
+            NSSound.beep()
+            return
+        }
+        let names = matches.sorted().map { document.analysis.rows[$0].label }
+        let preview = names.prefix(12).joined(separator: "\n") + (names.count > 12 ? "\n…and \(names.count - 12) more" : "")
+        let alert = NSAlert()
+        alert.messageText = "Delete \(names.count) matching sequence\(names.count == 1 ? "" : "s")?"
+        alert.informativeText = "The following sequences contain a gap or ambiguity in at least one selected column:\n\n\(preview)\n\nAttached #=GR rows will be removed too. Undo remains available."
+        alert.addButton(withTitle: "Delete Sequences")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        var removed: [String] = []
+        document.mutate("Delete Matching Sequences", undoManager: undoManager) { file in
+            removed = file.removeSequences(modelRows: matches)
+        }
+        state.clamp(to: document.file)
+        state.statusMessage = "Deleted \(removed.count) sequence\(removed.count == 1 ? "" : "s") and attached annotations."
+    }
+
+    private func toggleColumnBookmark() {
+        let column = state.selectedColumn
+        if state.columnBookmarks.contains(column) {
+            state.columnBookmarks.remove(column)
+            state.statusMessage = "Removed bookmark at column \(column + 1)."
+        } else {
+            state.columnBookmarks.insert(column)
+            state.statusMessage = "Bookmarked column \(column + 1) for this editing session."
+        }
+    }
+
+    private func nextColumnBookmark() {
+        let sorted = state.columnBookmarks.sorted()
+        guard let next = sorted.first(where: { $0 > state.selectedColumn }) ?? sorted.first else { return }
+        select(row: state.selectedRow, column: next)
+        state.statusMessage = "Jumped to bookmarked column \(next + 1)."
     }
 
     private func navigateToProblem(_ kind: AlignmentProblemKind?) {

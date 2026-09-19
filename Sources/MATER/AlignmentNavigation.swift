@@ -38,6 +38,34 @@ enum AlignmentSearch {
         }
         return nil
     }
+
+    static func findBackward(_ rawQuery: String, in file: StockholmFile, beforeRow: Int, beforeColumn: Int) -> AlignmentLocation? {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return nil }
+        let rows = file.rows
+        let lowered = query.lowercased()
+        let columnText = lowered.hasPrefix("col:") ? String(lowered.dropFirst(4)) : lowered
+        if let requested = Int(columnText), requested > 0, requested <= file.alignmentLength {
+            return AlignmentLocation(row: beforeRow, column: requested - 1, message: "Column \(requested)")
+        }
+        let orderedRows = Array(rows.indices.reversed().filter { $0 < beforeRow })
+            + Array(rows.indices.reversed().filter { $0 >= beforeRow })
+        if let row = orderedRows.first(where: { rows[$0].label.localizedCaseInsensitiveContains(query) }) {
+            return AlignmentLocation(row: row, column: min(beforeColumn, max(0, file.alignmentLength - 1)), message: rows[row].label)
+        }
+        let motif = query.uppercased().replacingOccurrences(of: "T", with: "U")
+        for rowIndex in orderedRows where rows[rowIndex].kind.isSequence {
+            let aligned = file.records[rows[rowIndex].recordIndex].aligned.uppercased().replacingOccurrences(of: "T", with: "U")
+            let end = rowIndex == beforeRow ? min(aligned.count, beforeColumn) : aligned.count
+            guard end > 0 else { continue }
+            let endIndex = aligned.index(aligned.startIndex, offsetBy: end)
+            if let range = aligned.range(of: motif, options: .backwards, range: aligned.startIndex..<endIndex) {
+                let column = aligned.distance(from: aligned.startIndex, to: range.lowerBound)
+                return AlignmentLocation(row: rowIndex, column: column, message: "\(rows[rowIndex].label), motif \(query)")
+            }
+        }
+        return nil
+    }
 }
 
 enum AlignmentProblemKind: String, CaseIterable {

@@ -6,6 +6,7 @@ test_binary="${TMPDIR:-/tmp}/mater-core-tests"
 state_test_binary="${TMPDIR:-/tmp}/mater-editor-state-tests"
 export_test_binary="${TMPDIR:-/tmp}/mater-export-tests"
 document_test_binary="${TMPDIR:-/tmp}/mater-document-tests"
+shortcut_test_binary="${TMPDIR:-/tmp}/mater-shortcut-tests"
 module_cache="${TMPDIR:-/tmp}/mater-core-module-cache"
 sdk_path="${MATER_SDK_PATH:-$(xcrun --sdk macosx --show-sdk-path)}"
 
@@ -67,3 +68,14 @@ swiftc \
   -o "$document_test_binary"
 
 MATER_RECOVERY_DIRECTORY="${TMPDIR:-/tmp}/mater-recovery-tests" "$document_test_binary"
+
+swiftc \
+  -sdk "$sdk_path" \
+  -module-cache-path "$module_cache" \
+  "$project_dir/Sources/MATER/KeyboardShortcuts.swift" \
+  "$project_dir/Tests/ShortcutRegressionMain.swift" \
+  -framework AppKit \
+  -framework SwiftUI \
+  -o "$shortcut_test_binary"
+
+"$shortcut_test_binary"

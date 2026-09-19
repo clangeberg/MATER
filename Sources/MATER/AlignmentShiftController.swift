@@ -34,7 +34,7 @@ enum AlignmentShiftController {
         }
 
         var shifted = false
-        document.mutate(direction < 0 ? "Shift Left" : "Shift Right", undoManager: undoManager) { file in
+        document.mutate(direction < 0 ? "Move Selection Left" : "Move Selection Right", undoManager: undoManager) { file in
             if let stemPlan {
                 shifted = file.shift(rows: rows, moves: stemPlan.moves)
             } else {
@@ -43,12 +43,13 @@ enum AlignmentShiftController {
         }
 
         guard shifted else {
+            let edge = direction < 0 ? "left" : "right"
             if let stemPlan {
                 state.statusMessage = stemPlan.isLinked
-                    ? "A gap is required beside both linked stem arms."
-                    : "A gap is required beside the complete stem arm."
+                    ? "Blocked: both linked stem arms need an available gap in their move directions."
+                    : "Blocked: the complete stem arm has no gap on its \(edge) edge."
             } else {
-                state.statusMessage = "A gap is required beside the selected block."
+                state.statusMessage = "Blocked: every selected row needs a gap on the \(edge) edge of the moved block."
             }
             return false
         }
@@ -72,5 +73,32 @@ enum AlignmentShiftController {
             state.statusMessage = "Shifted selection \(directionName)."
         }
         return true
+    }
+
+    /// Repeats the normal gap-safe move to the furthest valid position and
+    /// groups all steps into one Undo command.
+    @discardableResult
+    static func shiftToEdge(
+        document: StockholmDocument,
+        state: EditorState,
+        direction: Int,
+        undoManager: UndoManager?
+    ) -> Int {
+        undoManager?.beginUndoGrouping()
+        defer {
+            undoManager?.endUndoGrouping()
+            undoManager?.setActionName(direction < 0 ? "Push Selection Left" : "Push Selection Right")
+        }
+        var count = 0
+        let limit = max(1, document.file.alignmentLength)
+        while count < limit, shift(document: document, state: state, direction: direction, undoManager: undoManager) {
+            count += 1
+        }
+        if count > 0 {
+            let plural = count == 1 ? "" : "s"
+            let side = direction < 0 ? "left" : "right"
+            state.statusMessage = "Moved \(count) column\(plural) to the \(side)most valid position."
+        }
+        return count
     }
 }

@@ -4,10 +4,12 @@ import SwiftUI
 @main
 struct MATERApp: App {
     @StateObject private var residuePalette: ResiduePaletteSettings
+    @StateObject private var keyboardShortcuts: KeyboardShortcutSettings
 
     init() {
         PreferencesMigration.migrateLegacyDefaultsIfNeeded()
         _residuePalette = StateObject(wrappedValue: ResiduePaletteSettings())
+        _keyboardShortcuts = StateObject(wrappedValue: KeyboardShortcutSettings())
         StockholmDocument.cleanupRecoveryData(olderThanDays: 30)
     }
 
@@ -15,6 +17,7 @@ struct MATERApp: App {
         DocumentGroup(newDocument: { StockholmDocument() }) { configuration in
             DocumentEditorView(document: configuration.document, sourceURL: configuration.fileURL)
                 .environmentObject(residuePalette)
+                .environmentObject(keyboardShortcuts)
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -22,7 +25,7 @@ struct MATERApp: App {
             }
             CommandGroup(after: .textEditing) {
                 Divider()
-                Text("MATER: Shift–arrows selects a rectangle; Option–Left/Right shifts it or a complete stem arm; Link stem arms moves the paired arm in register; Control–G opens a gap.")
+                Text("MATER: drag selected cells to move them; Yaale-compatible shortcuts are the default and can be changed in Settings.")
             }
             CommandGroup(replacing: .help) {
                 Button("MATER User Guide") { MATERApplicationActions.openUserGuide() }
@@ -33,42 +36,41 @@ struct MATERApp: App {
         Settings {
             MATERSettingsView()
                 .environmentObject(residuePalette)
-        }
-    }
-}
-
-private enum MATERApplicationActions {
-    static func showAboutPanel() {
-        let credits = NSAttributedString(
-            string: "Manual Alignment Tool for Evolutionary RNA\nA structure-aware Stockholm editor with pseudoknot support.",
-            attributes: [.foregroundColor: NSColor.secondaryLabelColor]
-        )
-        NSApplication.shared.orderFrontStandardAboutPanel(options: [
-            .applicationName: "MATER",
-            .applicationVersion: "1.0.0",
-            .version: "Build 16",
-            .credits: credits
-        ])
-    }
-
-    static func openUserGuide() {
-        if let bundled = Bundle.main.url(forResource: "MATER-User-Guide", withExtension: "md") {
-            NSWorkspace.shared.open(bundled)
-            return
-        }
-        if let online = URL(string: "https://github.com/clangeberg/MATER/blob/v1.0.0/docs/MATER-User-Guide.md") {
-            NSWorkspace.shared.open(online)
+                .environmentObject(keyboardShortcuts)
         }
     }
 }
 
 private struct MATERSettingsView: View {
     @EnvironmentObject private var residuePalette: ResiduePaletteSettings
+    @EnvironmentObject private var keyboardShortcuts: KeyboardShortcutSettings
     @State private var rScapePath = UserDefaults.standard.string(forKey: RScapeExecutableLocator.savedPathKey) ?? "Not configured"
     @State private var showingClearConfirmation = false
     @State private var recoveryMessage = "Snapshots older than 30 days are removed automatically."
 
     var body: some View {
+        TabView {
+            generalSettings
+                .tabItem { Label("General", systemImage: "gear") }
+            KeyboardShortcutSettingsView()
+                .environmentObject(keyboardShortcuts)
+                .tabItem { Label("Keyboard", systemImage: "keyboard") }
+        }
+        .padding(14)
+        .frame(width: 650, height: 600)
+        .alert("Clear all MATER recovery data?", isPresented: $showingClearConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear Recovery Data", role: .destructive) {
+                recoveryMessage = StockholmDocument.clearAllRecoveryData()
+                    ? "All recovery snapshots were cleared."
+                    : "MATER could not clear all recovery snapshots."
+            }
+        } message: {
+            Text("This permanently removes MATER's automatic and manual recovery snapshots. Your saved Stockholm files are not affected.")
+        }
+    }
+
+    private var generalSettings: some View {
         Form {
             Section("Residue colors") {
                 ColorPicker("Adenine (A)", selection: residuePalette.binding(for: "A"), supportsOpacity: false)
@@ -101,18 +103,6 @@ private struct MATERSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .padding(14)
-        .frame(width: 540, height: 520)
-        .alert("Clear all MATER recovery data?", isPresented: $showingClearConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear Recovery Data", role: .destructive) {
-                recoveryMessage = StockholmDocument.clearAllRecoveryData()
-                    ? "All recovery snapshots were cleared."
-                    : "MATER could not clear all recovery snapshots."
-            }
-        } message: {
-            Text("This permanently removes MATER's automatic and manual recovery snapshots. Your saved Stockholm files are not affected.")
-        }
     }
 
     private func locateRScape() {
@@ -132,11 +122,74 @@ private struct MATERSettingsView: View {
     }
 }
 
+private struct KeyboardShortcutSettingsView: View {
+    @EnvironmentObject private var shortcuts: KeyboardShortcutSettings
+
+    private var categories: [String] {
+        Array(Set(EditorShortcutAction.allCases.map(\.category))).sorted()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Picker("Preset", selection: Binding(
+                    get: { shortcuts.preset },
+                    set: { shortcuts.applyPreset($0) }
+                )) {
+                    ForEach(ShortcutPreset.allCases) { Text($0.title).tag($0) }
+                }
+                .frame(width: 280)
+                Spacer()
+                Button("Reset to Yaale-compatible") { shortcuts.applyPreset(.yaale) }
+            }
+            Text("Click a shortcut field and type the new combination. Delete clears it; Escape cancels recording. Conflicts are shown in red.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            List {
+                ForEach(categories, id: \.self) { category in
+                    Section(category) {
+                        ForEach(EditorShortcutAction.allCases.filter { $0.category == category }) { action in
+                            shortcutRow(action)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func shortcutRow(_ action: EditorShortcutAction) -> some View {
+        let primaryConflicts = shortcuts.conflicts(for: action, alternate: false)
+        let alternateConflicts = shortcuts.conflicts(for: action, alternate: true)
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(action.title)
+                if !primaryConflicts.isEmpty || !alternateConflicts.isEmpty {
+                    Text("Conflict with \((primaryConflicts + alternateConflicts).map(\.title).joined(separator: ", "))")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+            }
+            Spacer()
+            ShortcutRecorder(stroke: shortcuts.binding(for: action).primary) {
+                shortcuts.set($0, for: action, alternate: false)
+            }
+            .frame(width: 100, height: 25)
+            ShortcutRecorder(stroke: shortcuts.binding(for: action).alternate) {
+                shortcuts.set($0, for: action, alternate: true)
+            }
+            .frame(width: 100, height: 25)
+            Button("Reset") { shortcuts.reset(action: action) }
+                .controlSize(.small)
+        }
+    }
+}
+
 enum PreferencesMigration {
     private static let migrationKey = "MATER.didMigrateOrgMaterRNAEditorDefaults"
     private static let keys = [
         "residue.A", "residue.C", "residue.G", "residue.U",
-        RScapeExecutableLocator.savedPathKey
+        RScapeExecutableLocator.savedPathKey,
+        "keyboardShortcutPreset", "keyboardShortcutBindings.v1"
     ]
 
     static func migrateLegacyDefaultsIfNeeded() {

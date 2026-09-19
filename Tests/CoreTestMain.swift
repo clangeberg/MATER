@@ -33,6 +33,7 @@ struct CoreTestMain {
         searchesAndNavigatesProblems()
         removesEveryAllGapColumnSafely()
         canCreateAndRemovePseudoknotPair()
+        manualEditingOperationsStaySafe()
         if CommandLine.arguments.count > 1 {
             for path in CommandLine.arguments.dropFirst() { audit(path: path) }
         }
@@ -1078,5 +1079,56 @@ struct CoreTestMain {
         expect(StructureParser.pairs(in: file).contains { $0.left == 1 && $0.right == 4 && $0.structureTag == "SS_cons_2" }, "pseudoknot pair was not created")
         file.clearPairs(touching: 1...1)
         expect(!StructureParser.pairs(in: file).contains { $0.left == 1 || $0.right == 1 }, "pseudoknot pair was not removed")
+    }
+
+    private static func manualEditingOperationsStaySafe() {
+        var file = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one --AC-G--
+        two --AU-G--
+        #=GR one PP ..98.7..
+        #=GC SS_cons .<....>.
+        //
+        """)
+        expect(file.justify(rows: [0], columns: 0...7, towardRight: false), "left justify should move residues")
+        expect(file.records[file.sequenceRows[0].recordIndex].aligned == "ACG-----", "left justify output")
+        let pp = file.records.first { if case .residueAnnotation("one", "PP") = $0.kind { return true }; return false }
+        expect(pp?.aligned.hasPrefix("987") == true, "left justify must move #=GR symbols with residues")
+
+        let structureRecord = file.structureRows[0].recordIndex
+        file.clearPairs(touching: [1], recordIndex: structureRecord)
+        expect(!StructureParser.pairs(in: file).contains { $0.recordIndex == structureRecord }, "row-local clear must remove both endpoints")
+        expect(file.setPair(left: 0, right: 7, recordIndex: structureRecord, open: "[", close: "]"), "direct complete WUSS pair")
+        expect(StructureParser.pairs(in: file).contains { $0.left == 0 && $0.right == 7 && $0.open == "[" }, "direct WUSS pair was not balanced")
+
+        file.writeConsensusAnnotation()
+        expect(file.rows.contains { if case .columnAnnotation(let tag) = $0.kind { return tag == "cons" }; return false }, "consensus annotation was not written")
+
+        var hairpin = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one ACGUACGU
+        two ACGUACGU
+        #=GC SS_cons ........
+        //
+        """)
+        expect(hairpin.foldHairpin(columns: 0...7, layer: .primary) == 3, "hairpin helper pair count")
+        expect(StructureParser.pairs(in: hairpin).count == 3, "hairpin helper output")
+        expect(hairpin.permuteColumns(around: 1) == false, "permutation must reject pairs crossing the new edge")
+
+        var deletion = StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one AC-G
+        two ACGG
+        #=GR one PP 98.7
+        #=GC SS_cons ....
+        //
+        """)
+        let removed = deletion.removeSequences(modelRows: [0])
+        expect(removed == ["one"], "sequence removal preview target")
+        expect(deletion.sequenceRows.count == 1, "sequence was not removed")
+        expect(!deletion.rows.contains { if case .residueAnnotation(let sequence, _) = $0.kind { return sequence == "one" }; return false }, "attached #=GR was not removed")
+
+        let backward = AlignmentSearch.findBackward("AC", in: deletion, beforeRow: 1, beforeColumn: 4)
+        expect(backward?.row == 0 && backward?.column == 0, "reverse search")
     }
 }

@@ -105,6 +105,7 @@ struct DocumentRegressionMain {
         }
         shiftDocument.sequenceEditingUnlocked = false
         let state = EditorState()
+        state.linkPairedStemShifts = true
         state.select(row: 0, column: 10)
         precondition(
             AlignmentShiftController.shift(document: shiftDocument, state: state, direction: -1, undoManager: nil),

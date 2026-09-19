@@ -40,6 +40,10 @@ final class AlignmentCanvasView: NSView {
     private weak var residuePalette: ResiduePaletteSettings?
     private var dragging = false
     private var draggingWholeColumn = false
+    private var draggingSelection = false
+    private var dragDidMove = false
+    private var dragLastColumn: Int?
+    private var dragUndoGrouping = false
 
     private var font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
     private var boldFont = NSFont.monospacedSystemFont(ofSize: 15, weight: .semibold)
@@ -59,6 +63,7 @@ final class AlignmentCanvasView: NSView {
     private var entropyByColumn: [Double] = []
     private var gapFrequencyByColumn: [Double] = []
     private var consensusCharacters: [Character] = []
+    private var sortScoreByRecordIndex: [Int: Double] = [:]
     private var changedColumnsByRecordIndex: [Int: Set<Int>] = [:]
     private var showEntropyPlot = false
     private var showGapPlot = false
@@ -72,6 +77,7 @@ final class AlignmentCanvasView: NSView {
     private var cachedSequenceSortMode: SequenceSortMode?
     private var cachedCurationStem: Int?
     private var cachedFontSize: Double?
+    private var cachedFontName: String?
     private let centeredParagraph: NSParagraphStyle = {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
@@ -86,14 +92,21 @@ final class AlignmentCanvasView: NSView {
         self.state = state
         self.residuePalette = residuePalette
 
-        let fontChanged = cachedFontSize != state.fontSize
+        let fontChanged = cachedFontSize != state.fontSize || cachedFontName != state.fontName
         if fontChanged {
-            font = NSFont.monospacedSystemFont(ofSize: CGFloat(state.fontSize), weight: .regular)
-            boldFont = NSFont.monospacedSystemFont(ofSize: CGFloat(state.fontSize), weight: .semibold)
+            if state.fontName == "System Monospaced" {
+                font = NSFont.monospacedSystemFont(ofSize: CGFloat(state.fontSize), weight: .regular)
+                boldFont = NSFont.monospacedSystemFont(ofSize: CGFloat(state.fontSize), weight: .semibold)
+            } else {
+                font = NSFont(name: state.fontName, size: CGFloat(state.fontSize))
+                    ?? NSFont.monospacedSystemFont(ofSize: CGFloat(state.fontSize), weight: .regular)
+                boldFont = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
             cellWidth = ceil(font.maximumAdvancement.width) + 2
             rowHeight = ceil(font.ascender - font.descender + font.leading) + 6
             headerHeight = rowHeight * 1.55
             cachedFontSize = state.fontSize
+            cachedFontName = state.fontName
         }
 
         let revisionChanged = cachedRevision != document.revision
@@ -186,6 +199,16 @@ final class AlignmentCanvasView: NSView {
                 return false
             }
         }
+        sortScoreByRecordIndex = [:]
+        if state.sequenceSortMode == .gscWeight {
+            let rows = file.sequenceRows
+            let weights = ConsensusAnalyzer.gscWeights(for: rows.map { Array(file.records[$0.recordIndex].aligned) })
+            sortScoreByRecordIndex = Dictionary(uniqueKeysWithValues: zip(rows, weights).map { ($0.recordIndex, Double($1)) })
+        } else if state.sequenceSortMode == .hitCoordinates {
+            for row in file.sequenceRows {
+                sortScoreByRecordIndex[row.recordIndex] = Self.hitCoordinate(in: row.label).map(Double.init)
+            }
+        }
         if state.sequenceSortMode != .fileOrder {
             let sequenceRows = presentedRows.filter { $0.row.kind.isSequence }.sorted { lhs, rhs in
                 sequencePrecedes(lhs, rhs, mode: state.sequenceSortMode, quality: quality, file: file)
@@ -270,7 +293,23 @@ final class AlignmentCanvasView: NSView {
             let left = StructuralQualityAnalyzer.wholeAlignmentGapFraction(recordIndex: lhs.row.recordIndex, in: file)
             let right = StructuralQualityAnalyzer.wholeAlignmentGapFraction(recordIndex: rhs.row.recordIndex, in: file)
             return left == right ? lhs.modelIndex < rhs.modelIndex : left > right
+        case .hitCoordinates:
+            let left = sortScoreByRecordIndex[lhs.row.recordIndex] ?? Double.greatestFiniteMagnitude
+            let right = sortScoreByRecordIndex[rhs.row.recordIndex] ?? Double.greatestFiniteMagnitude
+            return left == right ? lhs.modelIndex < rhs.modelIndex : left < right
+        case .gscWeight:
+            let left = sortScoreByRecordIndex[lhs.row.recordIndex] ?? 0
+            let right = sortScoreByRecordIndex[rhs.row.recordIndex] ?? 0
+            return left == right ? lhs.modelIndex < rhs.modelIndex : left > right
         }
+    }
+
+    private static func hitCoordinate(in name: String) -> Int? {
+        let pattern = #"(?:/|:)(\d+)(?:-|\.\.)(\d+)$"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
+              let range = Range(match.range(at: 1), in: name) else { return nil }
+        return Int(name[range])
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -435,6 +474,17 @@ final class AlignmentCanvasView: NSView {
                 background = residuePalette?.color(for: character)
                 foreground = .black
             }
+        case .nonDominant:
+            if row.kind.isSequence,
+               (!state.nonDominantCurrentColumnOnly || column == state.selectedColumn),
+               consensusCharacters.indices.contains(column) {
+                let residue = Character(String(character).uppercased().replacingOccurrences(of: "T", with: "U"))
+                let consensus = Character(String(consensusCharacters[column]).uppercased())
+                if "ACGU".contains(residue), "ACGU".contains(consensus), residue != consensus {
+                    background = NSColor.systemOrange.withAlphaComponent(0.72)
+                    foreground = .black
+                }
+            }
         case .none:
             break
         }
@@ -527,6 +577,8 @@ final class AlignmentCanvasView: NSView {
                     }
                 case .residue:
                     background = residuePalette?.color(for: character)
+                case .nonDominant:
+                    break
                 case .covariation, .none:
                     break
                 }
@@ -711,7 +763,29 @@ final class AlignmentCanvasView: NSView {
             return
         }
         guard let location = location(for: event) else { return }
+        if let pending = state.pendingStructurePair {
+            guard location.column != pending.column,
+                  let document,
+                  document.analysis.rows.indices.contains(pending.row) else {
+                state.statusMessage = "Choose a different column for the pair partner, or press Escape to cancel."
+                NSSound.beep()
+                return
+            }
+            let recordIndex = document.analysis.rows[pending.row].recordIndex
+            let left = min(pending.column, location.column)
+            let right = max(pending.column, location.column)
+            document.mutate("Set Structural Pair", undoManager: window?.undoManager) { file in
+                _ = file.setPair(left: left, right: right, recordIndex: recordIndex, open: pending.open, close: pending.close)
+            }
+            state.pendingStructurePair = nil
+            state.selectColumns([left, right], row: pending.row)
+            state.statusMessage = "Paired columns \(left + 1) and \(right + 1)."
+            needsDisplay = true
+            return
+        }
         dragging = true
+        dragDidMove = false
+        dragLastColumn = location.column
         let selectsWholeColumn = displayRows[displayIndexByModelRow[location.row] ?? 0].row.kind.selectsWholeColumn
         draggingWholeColumn = selectsWholeColumn
         if event.clickCount >= 3, let stem = stemByColumn[location.column] {
@@ -729,6 +803,18 @@ final class AlignmentCanvasView: NSView {
             needsDisplay = true
             return
         }
+        let clickedInsideSelection = state.selectedRows.contains(location.row)
+            && state.selectedColumnSet.contains(location.column)
+            && !event.modifierFlags.contains(.shift)
+            && document?.analysis.rows.indices.contains(location.row) == true
+            && document?.analysis.rows[location.row].kind.isSequence == true
+        if clickedInsideSelection {
+            draggingSelection = true
+            draggingWholeColumn = false
+            NSCursor.openHand.set()
+            return
+        }
+        draggingSelection = false
         state.select(
             row: location.row,
             column: location.column,
@@ -741,6 +827,38 @@ final class AlignmentCanvasView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard dragging, let state else { return }
+        if draggingSelection {
+            guard let location = location(for: event), let prior = dragLastColumn else { return }
+            let difference = location.column - prior
+            guard difference != 0 else { return }
+            let direction = difference < 0 ? -1 : 1
+            let steps = min(abs(difference), 20)
+            if !dragUndoGrouping {
+                window?.undoManager?.beginUndoGrouping()
+                dragUndoGrouping = true
+            }
+            var moved = false
+            for _ in 0..<steps {
+                guard let document,
+                      AlignmentShiftController.shift(
+                        document: document,
+                        state: state,
+                        direction: direction,
+                        undoManager: window?.undoManager
+                      ) else { break }
+                moved = true
+                dragDidMove = true
+                dragLastColumn = (dragLastColumn ?? prior) + direction
+            }
+            if moved {
+                NSCursor.closedHand.set()
+            } else {
+                NSCursor.operationNotAllowed.set()
+                NSSound.beep()
+            }
+            needsDisplay = true
+            return
+        }
         if draggingWholeColumn {
             let point = convert(event.locationInWindow, from: nil)
             guard let column = alignmentColumn(at: point.x) else { return }
@@ -760,12 +878,31 @@ final class AlignmentCanvasView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if dragUndoGrouping {
+            window?.undoManager?.endUndoGrouping()
+            window?.undoManager?.setActionName("Drag Alignment Selection")
+        }
+        if draggingSelection && !dragDidMove, let location = location(for: event), let state {
+            state.select(row: location.row, column: location.column)
+            updateStatus()
+        }
+        NSCursor.arrow.set()
         dragging = false
         draggingWholeColumn = false
+        draggingSelection = false
+        dragDidMove = false
+        dragLastColumn = nil
+        dragUndoGrouping = false
     }
 
     override func keyDown(with event: NSEvent) {
         guard let document, let state else { return }
+        if event.keyCode == 53, state.pendingStructurePair != nil {
+            state.pendingStructurePair = nil
+            state.statusMessage = "Cancelled structure-pair entry."
+            needsDisplay = true
+            return
+        }
         let command = event.modifierFlags.contains(.command)
         let control = event.modifierFlags.contains(.control)
         let shift = event.modifierFlags.contains(.shift)
@@ -888,6 +1025,50 @@ final class AlignmentCanvasView: NSView {
             NSSound.beep()
             return
         }
+        let structureRows = targetRows.filter { document.analysis.rows[$0].kind.isStructure }
+        if !structureRows.isEmpty {
+            guard structureRows.count == 1, targetRows.count == 1 else {
+                state.statusMessage = "Edit one SS_cons row at a time so pair partners remain unambiguous."
+                NSSound.beep()
+                return
+            }
+            let row = structureRows[0]
+            let columns = state.selectedColumnSet
+            if let bracket = StructureParser.bracketPair(for: input) {
+                if columns.count >= 2, let left = columns.min(), let right = columns.max(), left < right {
+                    let recordIndex = document.analysis.rows[row].recordIndex
+                    document.mutate("Set Structural Pair", undoManager: window?.undoManager) { file in
+                        _ = file.setPair(left: left, right: right, recordIndex: recordIndex, open: bracket.open, close: bracket.close)
+                    }
+                    state.pendingStructurePair = nil
+                    state.selectColumns([left, right], row: row)
+                    state.statusMessage = "Paired columns \(left + 1) and \(right + 1)."
+                } else {
+                    state.pendingStructurePair = PendingStructurePair(
+                        row: row,
+                        column: state.selectedColumn,
+                        open: bracket.open,
+                        close: bracket.close
+                    )
+                    state.statusMessage = "Choose the partner column for \(bracket.open)…\(bracket.close), or press Escape to cancel."
+                }
+                return
+            }
+            let allowedUnpaired = Set("._-,:~")
+            guard allowedUnpaired.contains(input) else {
+                state.statusMessage = "SS_cons accepts WUSS symbols; pairing brackets must be entered as a complete pair."
+                NSSound.beep()
+                return
+            }
+            let recordIndex = document.analysis.rows[row].recordIndex
+            document.mutate("Edit Structure Annotation", undoManager: window?.undoManager) { file in
+                file.clearPairs(touching: columns, recordIndex: recordIndex)
+                for column in columns { file.replaceCharacter(row: row, column: column, with: input) }
+            }
+            state.statusMessage = "Cleared complete pair(s) and updated the structure annotation."
+            return
+        }
+
         let character: Character
         if isSequenceEdit {
             let upper = Character(String(input).uppercased())
@@ -933,9 +1114,13 @@ final class AlignmentCanvasView: NSView {
         document.mutate("Clear Cells", undoManager: window?.undoManager) { file in
             for row in rows {
                 let fill: Character = document.analysis.rows[row].kind.isSequence ? "-" : "."
+                if document.analysis.rows[row].kind.isStructure {
+                    file.clearPairs(touching: columns, recordIndex: document.analysis.rows[row].recordIndex)
+                }
                 for column in columns { file.replaceCharacter(row: row, column: column, with: fill) }
             }
         }
+        state.statusMessage = "Cleared the selection; complete structure pairs were removed together."
     }
 
     private func shiftSelection(direction: Int) {
@@ -985,17 +1170,25 @@ final class AlignmentCanvasView: NSView {
         let targetRows = state.selectedRows.filter { document.analysis.rows.indices.contains($0) }
         let columns = state.orderedSelectedColumns
         let startColumn = columns.first ?? state.selectedColumn
+        var candidate = document.file
+        for (offset, line) in lines.enumerated() {
+            let targetRow = lines.count == 1 ? state.selectedRow : (targetRows.indices.contains(offset) ? targetRows[offset] : -1)
+            guard document.analysis.rows.indices.contains(targetRow) else { continue }
+            if !state.specialColumns.isEmpty, line.count <= columns.count {
+                for (character, column) in zip(line, columns) { candidate.replaceCharacter(row: targetRow, column: column, with: character) }
+            } else {
+                candidate.replaceCharacters(row: targetRow, startingAt: startColumn, with: String(line.prefix(max(0, candidate.alignmentLength - startColumn))))
+            }
+        }
+        let touchesStructure = targetRows.contains { document.analysis.rows[$0].kind.isStructure }
+        if touchesStructure, StructureParser.validationIssues(in: candidate).contains(where: { $0.severity == .error }) {
+            state.statusMessage = "Paste blocked: structure text must contain complete, balanced WUSS pairs."
+            NSSound.beep()
+            return
+        }
         let priorRevision = document.revision
         document.mutate("Paste", undoManager: window?.undoManager) { file in
-            for (offset, line) in lines.enumerated() {
-                let targetRow = lines.count == 1 ? state.selectedRow : (targetRows.indices.contains(offset) ? targetRows[offset] : -1)
-                guard document.analysis.rows.indices.contains(targetRow) else { continue }
-                if !state.specialColumns.isEmpty, line.count <= columns.count {
-                    for (character, column) in zip(line, columns) { file.replaceCharacter(row: targetRow, column: column, with: character) }
-                } else {
-                    file.replaceCharacters(row: targetRow, startingAt: startColumn, with: String(line.prefix(max(0, file.alignmentLength - startColumn))))
-                }
-            }
+            file = candidate
         }
         guard document.revision != priorRevision else { return }
         let final = min(document.file.alignmentLength - 1, startColumn + (lines.map(\.count).max() ?? 1) - 1)

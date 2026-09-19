@@ -281,6 +281,14 @@ private struct AlignmentExportSnapshot {
             }
         case .residue:
             if row.kind.isSequence { background = residueColors.color(for: character) }
+        case .nonDominant:
+            if row.kind.isSequence, consensusCharacters.indices.contains(column) {
+                let residue = Character(String(character).uppercased().replacingOccurrences(of: "T", with: "U"))
+                let consensus = Character(String(consensusCharacters[column]).uppercased())
+                if "ACGU".contains(residue), "ACGU".contains(consensus), residue != consensus {
+                    background = NSColor.systemOrange.withAlphaComponent(0.72)
+                }
+            }
         case .none:
             break
         }
@@ -304,7 +312,7 @@ private struct AlignmentExportSnapshot {
             }
         case .residue:
             background = residueColors.color(for: character)
-        case .covariation, .none:
+        case .nonDominant, .covariation, .none:
             break
         }
         return CellStyle(background: background, foreground: .black)
@@ -484,6 +492,8 @@ private struct AlignmentExportSnapshot {
             ]
         case .residue:
             return [("A", residueColors.adenine), ("C", residueColors.cytosine), ("G", residueColors.guanine), ("U/T", residueColors.uracil)]
+        case .nonDominant:
+            return [("differs from consensus", NSColor.systemOrange.withAlphaComponent(0.72))]
         case .none:
             return []
         }

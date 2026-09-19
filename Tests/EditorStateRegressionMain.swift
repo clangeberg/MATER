@@ -15,7 +15,7 @@ struct EditorStateRegressionMain {
         precondition(state.hidePosteriorProbability, "PP annotation rows should be hidden by default.")
         precondition(state.showEntropyPlot, "The entropy plot should be shown by default.")
         precondition(state.showGapPlot, "The gap-frequency plot should be shown by default.")
-        precondition(state.linkPairedStemShifts, "Paired stem-arm shifting should be enabled by default.")
+        precondition(!state.linkPairedStemShifts, "Linked stem-arm shifting should be opt-in by default.")
         precondition(state.showConsensus, "The R2R consensus row should be shown by default.")
         var notifications = 0
         let observation = state.objectWillChange.sink { notifications += 1 }

@@ -6,11 +6,19 @@ struct StemShiftContinuation: Equatable {
     let counterpartColumns: Set<Int>
 }
 
+struct PendingStructurePair: Equatable {
+    let row: Int
+    let column: Int
+    let open: Character
+    let close: Character
+}
+
 enum AlignmentColorMode: String, CaseIterable, Identifiable {
     case stem
     case element
     case covariation
     case residue
+    case nonDominant
     case none
 
     var id: String { rawValue }
@@ -20,6 +28,7 @@ enum AlignmentColorMode: String, CaseIterable, Identifiable {
         case .element: return "Element"
         case .covariation: return "Pair variation"
         case .residue: return "Residue"
+        case .nonDominant: return "Non-dominant"
         case .none: return "None"
         }
     }
@@ -47,6 +56,8 @@ enum SequenceSortMode: String, CaseIterable, Identifiable {
     case name
     case mostProblems
     case gapFraction
+    case hitCoordinates
+    case gscWeight
 
     var id: String { rawValue }
     var title: String {
@@ -55,6 +66,8 @@ enum SequenceSortMode: String, CaseIterable, Identifiable {
         case .name: return "Sequence name"
         case .mostProblems: return "Most pair violations"
         case .gapFraction: return "Highest gap fraction"
+        case .hitCoordinates: return "Parsed hit coordinate"
+        case .gscWeight: return "GSC sequence weight"
         }
     }
 }
@@ -69,6 +82,7 @@ final class EditorState: ObservableObject {
     @Published var colorMode: AlignmentColorMode = .stem
     @Published var pairingLayer: PairingLayer = .primary
     @Published var fontSize: Double = 15
+    @Published var fontName = "System Monospaced"
     @Published var showGrid = true
     @Published var hidePosteriorProbability = true
     @Published var showEntropyPlot = true
@@ -85,8 +99,11 @@ final class EditorState: ObservableObject {
     @Published var showMinimap = true
     @Published var sequenceFilterMode: SequenceFilterMode = .all
     @Published var sequenceSortMode: SequenceSortMode = .fileOrder
-    @Published var linkPairedStemShifts = true
+    @Published var nonDominantCurrentColumnOnly = false
+    @Published var linkPairedStemShifts = false
     @Published var stemShiftContinuation: StemShiftContinuation?
+    @Published var pendingStructurePair: PendingStructurePair?
+    @Published var columnBookmarks: Set<Int> = []
     @Published var statusMessage = "Ready"
 
     var selection: ClosedRange<Int> {
@@ -149,6 +166,7 @@ final class EditorState: ObservableObject {
         if highlightWholeColumn != wholeColumn { highlightWholeColumn = wholeColumn }
         if selectingConsensus != consensus { selectingConsensus = consensus }
         if stemShiftContinuation != nil { stemShiftContinuation = nil }
+        if pendingStructurePair != nil, pendingStructurePair?.row != targetRow { pendingStructurePair = nil }
     }
 
     func selectColumns(_ columns: Set<Int>, row: Int? = nil) {
@@ -164,6 +182,7 @@ final class EditorState: ObservableObject {
         if highlightWholeColumn { highlightWholeColumn = false }
         if selectingConsensus { selectingConsensus = false }
         if stemShiftContinuation != nil { stemShiftContinuation = nil }
+        if pendingStructurePair != nil, pendingStructurePair?.row != row { pendingStructurePair = nil }
     }
 
     func translateSelectedColumns(by offset: Int) {

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 — 2026-09-19
+
+- **Manual editing:** add Jalview-style horizontal drag movement for an existing selection, live valid/blocked feedback, and a single grouped Undo action.
+- **Stem-arm behavior:** selecting any paired base moves its complete fine stem arm by default; the opposite arm moves only when the opt-in **Link stem arms** toggle is enabled.
+- **Clearer controls:** rename movement actions, distinguish row-local gap opening from alignment-column insertion, place **Insert column** in the main toolbar, and report the exact edge condition that blocks a move.
+- **Pair-safe structure editing:** clearing either endpoint removes its mate atomically; typing a WUSS bracket into two selected columns creates a complete pair, while a single column starts a cancellable partner-selection step; unbalanced structure paste is rejected.
+- **Yaale-compatible keyboard preset:** use the established Control-comma/period movement, Control-I/D column operations, navigation, search, display, and editing aliases while preserving normal macOS Command shortcuts.
+- **Shortcut settings:** add editable primary and alternate bindings, conflict reporting, per-command reset, Yaale-compatible and MATER Classic presets, and focus-independent document shortcut routing.
+- **Additional alignment tools:** add extreme push, residue justification, gap-safe transpose, reverse search, go-to row/column, fast navigation, alignment audit/statistics, coordinate and GSC-weight display sorting, column bookmarks, hairpin annotation, consensus writing, safe sequence-criteria deletion, and boundary-checked column permutation.
+- **Display and help:** add non-dominant residue coloring, a current-column-only option, fixed-width font choices, and a fully in-app offline user guide.
+- **Scope:** no web login, remote sequence extension, hit-coordinate correction, or hit-through-motif workflow is included.
+
 ## 1.0.0 — 2026-09-10
 
 - **First public release:** the structure-aware Stockholm editor, full user guide, Rfam teaching files, and universal macOS app are ready for general use.

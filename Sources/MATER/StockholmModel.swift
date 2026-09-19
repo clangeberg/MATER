@@ -373,6 +373,155 @@ struct StockholmFile: Equatable, Sendable {
         }
     }
 
+    /// Clears complete pairs only in one structure row. This is used by direct
+    /// SS_cons editing so editing one endpoint can never leave its mate behind.
+    mutating func clearPairs(touching columns: Set<Int>, recordIndex: Int) {
+        let currentPairs = StructureParser.pairs(in: self)
+        for pair in currentPairs where pair.recordIndex == recordIndex
+            && (columns.contains(pair.left) || columns.contains(pair.right)) {
+            records[pair.recordIndex].aligned.replaceCharacter(at: pair.left, with: ".")
+            records[pair.recordIndex].aligned.replaceCharacter(at: pair.right, with: ".")
+        }
+    }
+
+    /// Writes a complete WUSS pair into an existing SS_cons row after removing
+    /// any pairs already attached to either endpoint.
+    @discardableResult
+    mutating func setPair(left: Int, right: Int, recordIndex: Int, open: Character, close: Character) -> Bool {
+        guard records.indices.contains(recordIndex), records[recordIndex].kind?.isStructure == true,
+              left >= 0, right < alignmentLength, left < right else { return false }
+        clearPair(at: left, recordIndex: recordIndex)
+        clearPair(at: right, recordIndex: recordIndex)
+        records[recordIndex].aligned.replaceCharacter(at: left, with: open)
+        records[recordIndex].aligned.replaceCharacter(at: right, with: close)
+        return true
+    }
+
+    /// Packs the residues inside a selected window toward one side while
+    /// preserving residue order, alignment width, gap notation, and #=GR
+    /// attachment through `replaceSequenceGapPlacement`.
+    @discardableResult
+    mutating func justify(rows selectedRows: Set<Int>, columns: ClosedRange<Int>, towardRight: Bool) -> Bool {
+        let alignmentRows = rows
+        var replacements: [Int: String] = [:]
+        for row in selectedRows.sorted() {
+            guard alignmentRows.indices.contains(row), alignmentRows[row].kind.isSequence else { return false }
+            let recordIndex = alignmentRows[row].recordIndex
+            var all = Array(records[recordIndex].aligned)
+            guard all.indices.contains(columns.lowerBound), all.indices.contains(columns.upperBound) else { return false }
+            let original = Array(all[columns])
+            let residues = original.filter { !Self.isGap($0) && $0 != "_" && $0 != " " }
+            let gaps = original.filter { Self.isGap($0) || $0 == "_" || $0 == " " }
+            let replacement = towardRight ? gaps + residues : residues + gaps
+            guard replacement != original else { continue }
+            for (offset, character) in replacement.enumerated() { all[columns.lowerBound + offset] = character }
+            replacements[recordIndex] = String(all)
+        }
+        guard !replacements.isEmpty else { return false }
+        var candidate = self
+        for (recordIndex, replacement) in replacements {
+            guard candidate.replaceSequenceGapPlacement(recordIndex: recordIndex, with: replacement) else { return false }
+        }
+        self = candidate
+        return true
+    }
+
+    /// Swaps the residue at the cursor with an adjacent gap. No residue can be
+    /// transposed across another residue.
+    @discardableResult
+    mutating func transposeGap(row: Int, column: Int, direction: Int) -> Bool {
+        guard direction == -1 || direction == 1 else { return false }
+        let alignmentRows = rows
+        guard alignmentRows.indices.contains(row), alignmentRows[row].kind.isSequence else { return false }
+        let recordIndex = alignmentRows[row].recordIndex
+        var characters = Array(records[recordIndex].aligned)
+        let neighbor = column + direction
+        guard characters.indices.contains(column), characters.indices.contains(neighbor) else { return false }
+        let firstIsGap = AlignmentSymbol.isSequenceGap(characters[column])
+        let secondIsGap = AlignmentSymbol.isSequenceGap(characters[neighbor])
+        guard firstIsGap != secondIsGap else { return false }
+        characters.swapAt(column, neighbor)
+        return replaceSequenceGapPlacement(recordIndex: recordIndex, with: String(characters))
+    }
+
+    /// Rotates every aligned row so the selected column becomes column one.
+    /// The edit is refused if it would make any WUSS pair cross the new edge.
+    @discardableResult
+    mutating func permuteColumns(around column: Int) -> Bool {
+        let length = alignmentLength
+        guard column > 0, column < length else { return false }
+        var candidate = self
+        for row in candidate.rows where candidate.records[row.recordIndex].aligned.count == length {
+            let characters = Array(candidate.records[row.recordIndex].aligned)
+            candidate.records[row.recordIndex].aligned = String(characters[column...] + characters[..<column])
+        }
+        guard StructureParser.validationIssues(in: candidate).isEmpty else { return false }
+        self = candidate
+        return true
+    }
+
+    /// Annotates the selected interval as a nested hairpin using the requested
+    /// WUSS layer. Existing pairs touching the interval are removed atomically.
+    @discardableResult
+    mutating func foldHairpin(columns: ClosedRange<Int>, layer: PairingLayer) -> Int {
+        guard columns.count >= 4 else { return 0 }
+        let recordIndex = ensureStructureRow(tag: layer.tag)
+        clearPairs(touching: Set(columns), recordIndex: recordIndex)
+        var left = columns.lowerBound
+        var right = columns.upperBound
+        var count = 0
+        while left < right - 2 {
+            _ = setPair(left: left, right: right, recordIndex: recordIndex, open: layer.open, close: layer.close)
+            count += 1
+            left += 1
+            right -= 1
+        }
+        return count
+    }
+
+    /// Adds or replaces the calculated sequence consensus as `#=GC cons`.
+    mutating func writeConsensusAnnotation() {
+        let value = ConsensusAnalyzer.consensus(in: self)
+        if let index = records.firstIndex(where: {
+            if case .columnAnnotation(let tag) = $0.kind { return tag.caseInsensitiveCompare("cons") == .orderedSame }
+            return false
+        }) {
+            records[index].aligned = value
+            return
+        }
+        let insertion = records.firstIndex(where: { $0.rendered.trimmingCharacters(in: .whitespaces) == "//" }) ?? records.endIndex
+        records.insert(StockholmRecord(
+            raw: "",
+            kind: .columnAnnotation(tag: "cons"),
+            prefix: "#=GC cons",
+            separator: "    ",
+            aligned: value,
+            suffix: ""
+        ), at: insertion)
+    }
+
+    /// Removes selected sequence records and their attached #=GR rows.
+    @discardableResult
+    mutating func removeSequences(modelRows: Set<Int>) -> [String] {
+        let alignmentRows = rows
+        let names = Set(modelRows.compactMap { row -> String? in
+            guard alignmentRows.indices.contains(row), case .sequence(let name) = alignmentRows[row].kind else { return nil }
+            return name
+        })
+        guard !names.isEmpty, sequenceRows.count > names.count else { return [] }
+        let uniqueNames = names.filter { name in
+            sequenceRows.filter { if case .sequence(let candidate) = $0.kind { return candidate == name }; return false }.count == 1
+        }
+        records.removeAll { record in
+            switch record.kind {
+            case .sequence(let name): return uniqueNames.contains(name)
+            case .residueAnnotation(let sequence, _): return uniqueNames.contains(sequence)
+            default: return false
+            }
+        }
+        return uniqueNames.sorted()
+    }
+
     private mutating func clearPair(at column: Int, recordIndex: Int) {
         let pairs = StructureParser.pairs(in: self)
         for pair in pairs where pair.recordIndex == recordIndex && (pair.left == column || pair.right == column) {

@@ -15,6 +15,7 @@ struct ScreenshotMain {
             let source = try String(contentsOf: inputURL, encoding: .utf8)
             let document = StockholmDocument(previewFile: StockholmParser.parse(source))
             let palette = ResiduePaletteSettings()
+            let shortcuts = KeyboardShortcutSettings(defaults: UserDefaults(suiteName: "MATER.Screenshot")!)
             let selectedColumn = document.analysis.structurePairs.first?.left ?? 0
             let root = DocumentEditorView(
                 document: document,
@@ -22,6 +23,7 @@ struct ScreenshotMain {
                 initialSelectedColumn: selectedColumn
             )
                 .environmentObject(palette)
+                .environmentObject(shortcuts)
                 .frame(width: 1440, height: 900)
             let hosting = NSHostingView(rootView: root)
             hosting.frame = NSRect(x: 0, y: 0, width: 1440, height: 900)

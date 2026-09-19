@@ -16,6 +16,9 @@ MATER complements Infernal, R2R, and R-scape rather than replacing them. Its sco
 - Coloring canonical pairs by stem or by larger structural element, including pseudoknots
 - Switching between structural colors and user-defined A/C/G/U colors
 - Highlighting paired columns and moving one or both helix arms together
+- Dragging selected cells to move them, with one-step undo and blocked-move feedback
+- Using Yaale-compatible default shortcuts or assigning primary and alternate shortcuts in Settings
+- Editing `SS_cons` safely: pair endpoints are created and removed together across WUSS/pseudoknot classes
 - Protecting ungapped sequence order and keeping `#=GR` annotations registered with their sequences
 - Showing R2R-style consensus, entropy, gap frequency, and occupied-pair violation tracks directly under the alignment
 - Suggesting local gap-only improvements or refining the alignment with **Wiggle-refine**
@@ -26,7 +29,7 @@ The [MATER User Guide](docs/MATER-User-Guide.md) covers every control, keyboard 
 
 ## Install
 
-1. Download `MATER-1.0.0-macOS-universal.zip` from the [MATER 1.0.0 release](https://github.com/clangeberg/MATER/releases/tag/v1.0.0).
+1. Download `MATER-1.1.0-macOS-universal.zip` from the [MATER 1.1.0 release](https://github.com/clangeberg/MATER/releases/tag/v1.1.0).
 2. Unzip it and drag `MATER.app` into Applications.
 3. Open a Stockholm file from MATER or double-click it in Finder.
 
@@ -42,7 +45,9 @@ This command should only be used for a copy downloaded from the repository's off
 
 ## Basic workflow
 
-Open a Stockholm alignment and leave **Alignment locked** on. Select bases or whole columns, then use Option–Left/Right to move residues into neighboring gaps. Double-click a paired base to select both partners; triple-click it to select the full stem. **Link stem arms** moves the opposite arm in register.
+Open a Stockholm alignment and leave **Alignment locked** on. Select bases or whole columns, then drag the selection horizontally or use Control-comma/Control-period to move it into neighboring gaps. Option–Left/Right remains available as an alternate. Double-click a paired base to select both partners; triple-click it to select the full stem. A single selected paired base moves its complete fine stem arm. **Link stem arms** is opt-in and moves the opposite arm in register.
+
+**Insert column** is available directly in the editing toolbar. It inserts an empty alignment column across all aligned rows; **Open row gap** only rearranges gaps within the selected sequence. The bundled guide opens inside MATER with Command-Question Mark, and all editor shortcuts can be reviewed or reassigned under **MATER → Settings → Keyboard**.
 
 Use **Stem** colors to distinguish local stacks and **Element** colors to follow a larger helix through bulges or internal loops. Noncanonical pairs are deliberately left uncolored so pairing problems stand out.
 
@@ -89,7 +94,7 @@ The build uses Swift 5.10 or newer and the matching macOS SDK from Xcode Command
 
 ## Scope
 
-MATER currently edits one Stockholm alignment per window. It does not realign sequences, infer a new structure on its own, or turn descriptive pair variation into a statistical covariation result. Those jobs remain with dedicated tools. The optional R-scape integration is the statistical path provided by MATER.
+MATER currently edits one Stockholm alignment per window. It does not realign sequences, infer a new structure on its own, or turn descriptive pair variation into a statistical covariation result. Those jobs remain with dedicated tools. The optional R-scape integration is the statistical path provided by MATER. Network login, remote sequence extension, hit-coordinate correction, and hit-through-motif workflows are not included.
 
 The compact structural-problem heatmap is intentionally a screen-only navigation aid and is not included in PDF or SVG exports.
 
