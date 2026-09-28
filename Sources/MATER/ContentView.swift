@@ -362,6 +362,7 @@ struct DocumentEditorView: View {
                     Divider()
                     Button("Detect inconsistent or identical sequences", action: showAlignmentAudit)
                     Button("Alignment statistics", action: showAlignmentStatistics)
+                    Button("Delete selected sequences…", action: deleteSelectedSequences)
                     Button("Delete sequences matching selected-column criteria…", action: deleteMatchingSequences)
                     Divider()
                     Button(state.columnBookmarks.contains(state.selectedColumn) ? "Remove column bookmark" : "Bookmark current column", action: toggleColumnBookmark)
@@ -1403,6 +1404,44 @@ struct DocumentEditorView: View {
         var removed: [String] = []
         document.mutate("Delete Matching Sequences", undoManager: undoManager) { file in
             removed = file.removeSequences(modelRows: matches)
+        }
+        state.clamp(to: document.file)
+        state.statusMessage = "Deleted \(removed.count) sequence\(removed.count == 1 ? "" : "s") and attached annotations."
+    }
+
+    private func deleteSelectedSequences() {
+        guard document.sequenceEditingUnlocked else {
+            state.statusMessage = "Sequence deletion requires explicitly unlocking Alignment Integrity mode."
+            NSSound.beep()
+            return
+        }
+        let selectedRows = Set(state.selectedRows.filter {
+            document.analysis.rows.indices.contains($0) && document.analysis.rows[$0].kind.isSequence
+        })
+        guard !selectedRows.isEmpty else {
+            state.statusMessage = "Select at least one sequence row before deleting."
+            NSSound.beep()
+            return
+        }
+        guard selectedRows.count < document.file.sequenceRows.count else {
+            state.statusMessage = "Deletion blocked because it would remove every sequence."
+            NSSound.beep()
+            return
+        }
+
+        let names = selectedRows.sorted().map { document.analysis.rows[$0].label }
+        let preview = names.prefix(12).joined(separator: "\n")
+            + (names.count > 12 ? "\n…and \(names.count - 12) more" : "")
+        let alert = NSAlert()
+        alert.messageText = "Delete \(names.count) selected sequence\(names.count == 1 ? "" : "s")?"
+        alert.informativeText = "The following sequence rows will be removed:\n\n\(preview)\n\nAttached #=GR rows will be removed too. Undo remains available."
+        alert.addButton(withTitle: "Delete Sequences")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        var removed: [String] = []
+        document.mutate("Delete Selected Sequences", undoManager: undoManager) { file in
+            removed = file.removeSequences(modelRows: selectedRows)
         }
         state.clamp(to: document.file)
         state.statusMessage = "Deleted \(removed.count) sequence\(removed.count == 1 ? "" : "s") and attached annotations."

@@ -11,8 +11,8 @@ enum MATERApplicationActions {
         )
         NSApplication.shared.orderFrontStandardAboutPanel(options: [
             .applicationName: "MATER",
-            .applicationVersion: "1.1.1",
-            .version: "Build 18",
+            .applicationVersion: "1.1.2",
+            .version: "Build 19",
             .credits: credits
         ])
     }

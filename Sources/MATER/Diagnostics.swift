@@ -3,8 +3,8 @@ import Foundation
 enum MATERDiagnostics {
     static func report(document: StockholmDocument, sourceURL: URL?) -> String {
         let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "1.1.1"
-        let build = info?["CFBundleVersion"] as? String ?? "18"
+        let version = info?["CFBundleShortVersionString"] as? String ?? "1.1.2"
+        let build = info?["CFBundleVersion"] as? String ?? "19"
         let operatingSystem = ProcessInfo.processInfo.operatingSystemVersionString
         let architecture: String
 #if arch(arm64)

@@ -2,13 +2,13 @@
 
 **Manual Alignment Tool for Evolutionary RNA**
 
-**MATER version 1.1.1 • macOS 13 or newer**
+**MATER version 1.1.2 • macOS 13 or newer**
 
 Manual revision: 10 September 2026
 
 MATER is a native macOS editor for manual curation of RNA multiple-sequence alignments in Stockholm format. It keeps aligned sequence, consensus secondary structure, pseudoknots, per-column annotations, and per-residue annotations in one editable view. Its central design rule is that ordinary alignment work should move gaps without silently changing the underlying biological sequences.
 
-This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 1.1.1.
+This manual is both a tutorial and a reference. New users should read Sections 1–4 and then work through Section 5. The remaining sections describe every control, calculation, and known limitation in version 1.1.2.
 
 > **Safety rule:** Keep a versioned copy of an important alignment and leave **Alignment locked** on during normal curation.
 
@@ -68,12 +68,12 @@ In this guide:
 
 ### 2.2 Installing the release ZIP
 
-1. Unzip `MATER-1.1.1-macOS-universal.zip`.
+1. Unzip `MATER-1.1.2-macOS-universal.zip`.
 2. Drag `MATER.app` to **Applications**.
 3. On first launch, right-click MATER and choose **Open**.
 4. If macOS still blocks it, open **System Settings → Privacy & Security**, allow MATER, and try again.
 
-Version 1.1.1 is ad-hoc signed and is not Apple-notarized. This produces more Gatekeeper friction than a Developer ID-signed, notarized release. Only bypass the warning for a copy downloaded from MATER's official GitHub release page.
+Version 1.1.2 is ad-hoc signed and is not Apple-notarized. This produces more Gatekeeper friction than a Developer ID-signed, notarized release. Only bypass the warning for a copy downloaded from MATER's official GitHub release page.
 
 ### 2.3 Opening an alignment
 
@@ -327,6 +327,7 @@ The **Alignment tools** menu collects local equivalents of useful commands from 
 - **Permute alignment around cursor** rotates every aligned row so the cursor column becomes column 1. A preview confirmation is required, and an edit that would split a WUSS pair across the new boundary is refused.
 - **Detect inconsistent or identical sequences** reports exact duplicate aligned strings and current Stockholm validation errors without changing the file.
 - **Alignment statistics** reports dimensions, ungapped residues, defined pairs, mean gap frequency, mean entropy, and validation counts.
+- **Delete selected sequences** removes the currently selected sequence row or sequence rows after showing their names in a confirmation dialog. Select a row by clicking any of its cells; extend across multiple rows with Shift-click or Shift-arrow. Attached `#=GR` records are removed with their owning sequence. The command requires Alignment Integrity mode to be explicitly unlocked, retains at least one sequence, and is Undoable.
 - **Delete sequences matching selected-column criteria** previews sequences with a gap or ambiguity in at least one selected column. Deletion requires Alignment Integrity mode to be explicitly unlocked, removes attached `#=GR` rows, retains at least one sequence, and is Undoable.
 - **Bookmark current column / Next column bookmark** provides session-local named-position behavior without writing private metadata into the Stockholm file.
 
@@ -1084,7 +1085,7 @@ The same Finder `PATH` rule applies. In the chooser, select the executable that 
 
 ## 24. Current limitations
 
-Version 1.1.1 intentionally has a bounded scope:
+Version 1.1.2 intentionally has a bounded scope:
 
 - macOS only; macOS 13 or newer
 - Ad-hoc signed and not notarized
@@ -1093,7 +1094,7 @@ Version 1.1.1 intentionally has a bounded scope:
 - No built-in structure prediction or thermodynamic folding; CaCoFold-refine is available only through a separately installed R-scape
 - Statistical covariation analysis requires a separate compatible R-scape/R2R installation; MATER does not bundle, update, or reimplement it
 - No covariance-model building/searching
-- No automatic sequence addition, renaming, or phylogenetic tree editor; criterion-based sequence deletion is an explicit previewed tool that requires the integrity lock to be opened
+- No automatic sequence addition, renaming, or phylogenetic tree editor; direct and criterion-based sequence deletion are explicit previewed tools that require the integrity lock to be opened
 - No web login, remote sequence extension, hit-coordinate correction, or hit-through-motif workflow
 - Suggested and automatic edits use bounded helix-plus-three-column gap rearrangements and iterative local moves rather than a global multiple-sequence realignment algorithm
 - GUI pair creation provides four pseudoknot layers beyond primary, although more existing WUSS letter classes are parsed
@@ -1222,7 +1223,7 @@ dist/MATER.app
 
 A concise methods statement for work performed with this release is:
 
-> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 1.1.1. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
+> RNA multiple-sequence alignments in Stockholm format were manually curated with MATER version 1.1.2. Ungapped sequence integrity and per-residue Stockholm annotation registration were protected during gap editing. Consensus symbols used MATER's implementation of the standard R2R GSC-weighted sequence-consensus thresholds. Pair-variation colors were used descriptively and were not interpreted as a statistical covariation test.
 
 If the optional integration was used, also report the independently installed R-scape version and whether **Run R-scape** evaluate-given-structure analysis or **CaCoFold-refine** was used. For statistical analysis, preserve and report the retained command/log and output files. For CaCoFold-refine, preserve the source and refined Stockholm files and report R-scape's version because MATER deliberately discards the intermediate run products. If MATER materially contributed to a published analysis, state which external method was used to test covariation or structural support.
 

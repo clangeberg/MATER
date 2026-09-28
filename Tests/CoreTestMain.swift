@@ -1159,6 +1159,9 @@ struct CoreTestMain {
         expect(removed == ["one"], "sequence removal preview target")
         expect(deletion.sequenceRows.count == 1, "sequence was not removed")
         expect(!deletion.rows.contains { if case .residueAnnotation(let sequence, _) = $0.kind { return sequence == "one" }; return false }, "attached #=GR was not removed")
+        let singleSequenceState = deletion.rendered
+        expect(deletion.removeSequences(modelRows: [0]).isEmpty, "the final sequence should not be removable")
+        expect(deletion.rendered == singleSequenceState, "attempting to delete every sequence changed the alignment")
 
         let backward = AlignmentSearch.findBackward("AC", in: deletion, beforeRow: 1, beforeColumn: 4)
         expect(backward?.row == 0 && backward?.column == 0, "reverse search")

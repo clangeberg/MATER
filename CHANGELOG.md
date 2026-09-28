@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2 — 2026-09-28
+
+- **Direct sequence deletion:** add **Alignment tools → Delete selected sequences…** for removing one sequence row or a selected row range without constructing a column-based criterion.
+- **Safe confirmation:** preview the selected sequence names, remove attached `#=GR` records, retain at least one sequence, and keep the operation Undoable.
+- **Integrity protection:** require Alignment Integrity mode to be explicitly unlocked before sequence records can be removed.
+
 ## 1.1.1 — 2026-09-19
 
 - **Directional block pushing:** when an ordinary contiguous selection is blocked by adjacent residues, extend the move through the occupied run to the first gap. This allows an unpaired nucleotide beside a helix to push the complete local stack without preselecting it.

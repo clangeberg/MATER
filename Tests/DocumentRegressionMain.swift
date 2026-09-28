@@ -156,6 +156,37 @@ struct DocumentRegressionMain {
             "The expanded destination block did not remain selected."
         )
 
+        let deletionDocument = StockholmDocument(previewFile: StockholmParser.parse("""
+        # STOCKHOLM 1.0
+        one ACGU
+        two ACGU
+        three ACGU
+        #=GR one PP 9876
+        #=GR two PP 8765
+        #=GC SS_cons <..>
+        //
+        """))
+        deletionDocument.sequenceEditingUnlocked = true
+        let deletionBefore = deletionDocument.file
+        let deletionUndoManager = UndoManager()
+        deletionUndoManager.groupsByEvent = false
+        deletionUndoManager.beginUndoGrouping()
+        deletionDocument.mutate("Delete Selected Sequences", undoManager: deletionUndoManager) { file in
+            let removed = file.removeSequences(modelRows: [0, 1])
+            precondition(removed == ["one", "two"], "Multi-row sequence deletion removed the wrong rows.")
+        }
+        deletionUndoManager.endUndoGrouping()
+        let deletionAfter = deletionDocument.file
+        precondition(deletionAfter.sequenceRows.map(\.label) == ["three"], "Selected sequences were not removed.")
+        precondition(
+            !deletionAfter.rows.contains { if case .residueAnnotation = $0.kind { return true }; return false },
+            "Attached #=GR rows survived sequence deletion."
+        )
+        deletionUndoManager.undo()
+        precondition(deletionDocument.file == deletionBefore, "Undo did not restore deleted sequence rows.")
+        deletionUndoManager.redo()
+        precondition(deletionDocument.file == deletionAfter, "Redo did not restore direct sequence deletion.")
+
         print("MATER document recovery and comparison regression tests passed.")
     }
 

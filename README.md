@@ -56,6 +56,7 @@ MATER complements Infernal, R2R, and R-scape rather than replacing them. Alignme
 - Using Yaale-compatible default shortcuts or assigning primary and alternate shortcuts in Settings
 - Editing `SS_cons` safely: pair endpoints are created and removed together across WUSS/pseudoknot classes
 - Protecting ungapped sequence order and keeping `#=GR` annotations registered with their sequences
+- Deleting explicitly selected sequence rows, with preview, attached `#=GR` cleanup, and Undo support
 - Showing R2R-style consensus, entropy, gap frequency, and occupied-pair violation tracks directly under the alignment
 - Suggesting local gap-only improvements or refining the alignment with **Wiggle-refine**
 - Running optional R-scape and CaCoFold workflows when R-scape is installed separately
@@ -65,7 +66,7 @@ The [MATER User Guide](docs/MATER-User-Guide.md) covers every control, keyboard 
 
 ## Install
 
-1. Download `MATER-1.1.1-macOS-universal.zip` from the [MATER 1.1.1 release](https://github.com/clangeberg/MATER/releases/tag/v1.1.1).
+1. Download `MATER-1.1.2-macOS-universal.zip` from the [MATER 1.1.2 release](https://github.com/clangeberg/MATER/releases/tag/v1.1.2).
 2. Unzip it and drag `MATER.app` into Applications.
 3. Open a Stockholm file from MATER or double-click it in Finder.
 
