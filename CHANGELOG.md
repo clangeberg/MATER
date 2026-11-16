@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3 — 2026-11-16
+
+- **Citable release:** connect MATER releases to Zenodo so the software receives a persistent DOI and versioned archive.
+- **Author metadata:** add the author's ORCID and institutional affiliation to `CITATION.cff`.
+- **No editor changes:** alignment behavior and file handling are unchanged from 1.1.2.
+
 ## 1.1.2 — 2026-09-28
 
 - **Direct sequence deletion:** add **Alignment tools → Delete selected sequences…** for removing one sequence row or a selected row range without constructing a column-based criterion.

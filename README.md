@@ -66,7 +66,7 @@ The [MATER User Guide](docs/MATER-User-Guide.md) covers every control, keyboard 
 
 ## Install
 
-1. Download `MATER-1.1.2-macOS-universal.zip` from the [MATER 1.1.2 release](https://github.com/clangeberg/MATER/releases/tag/v1.1.2).
+1. Download `MATER-1.1.3-macOS-universal.zip` from the [MATER 1.1.3 release](https://github.com/clangeberg/MATER/releases/tag/v1.1.3).
 2. Unzip it and drag `MATER.app` into Applications.
 3. Open a Stockholm file from MATER or double-click it in Finder.
 
