@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://github.com/clangeberg/MATER/actions/workflows/ci.yml"><img alt="MATER CI" src="https://github.com/clangeberg/MATER/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/clangeberg/MATER/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/clangeberg/MATER?label=release"></a>
+  <a href="https://doi.org/10.5281/zenodo.24288578"><img alt="Zenodo DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.24288578.svg"></a>
   <img alt="macOS 13 or newer" src="https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white">
   <a href="LICENSE"><img alt="BSD 3-Clause License" src="https://img.shields.io/badge/License-BSD--3--Clause-6f42c1"></a>
 </p>
@@ -137,6 +138,8 @@ The compact structural-problem heatmap is intentionally a screen-only navigation
 
 ## Citation, license, and feedback
 
-Citation metadata is in [CITATION.cff](CITATION.cff). MATER is available under the [BSD 3-Clause License](LICENSE).
+MATER is archived on Zenodo. Cite the exact release used; the DOI for version 1.1.3 is [10.5281/zenodo.24288579](https://doi.org/10.5281/zenodo.24288579). The [MATER concept DOI](https://doi.org/10.5281/zenodo.24288578) resolves to the latest archived release. Machine-readable citation metadata is in [CITATION.cff](CITATION.cff).
+
+MATER is available under the [BSD 3-Clause License](LICENSE).
 
 Bug reports and focused feature requests are welcome through [GitHub Issues](https://github.com/clangeberg/MATER/issues). **Changes → Copy Diagnostics** produces a report without copying sequence or annotation contents. A small reproducible Stockholm example is especially helpful; unpublished biological data should be removed first.
